@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice" role="img" aria-label="abstract music artwork">
+  <rect width="1920" height="1080" fill="#f3ede1"/>
+  <circle cx="1610" cy="510" r="710" fill="#ded9cc" opacity=".55"/>
+  <circle cx="1655" cy="520" r="610" fill="#213b32"/>
+  <circle cx="1655" cy="520" r="82" fill="#d95d41"/>
+  <circle cx="1655" cy="520" r="20" fill="#f3ede1"/>
+  <g fill="none" stroke="#40594f" opacity=".7">
+    <circle cx="1655" cy="520" r="530" stroke-width="4"/>
+    <circle cx="1655" cy="520" r="455" stroke-width="3"/>
+    <circle cx="1655" cy="520" r="385" stroke-width="3"/>
+    <circle cx="1655" cy="520" r="320" stroke-width="2"/>
+    <circle cx="1655" cy="520" r="260" stroke-width="2"/>
+  </g>
+  <path d="M-80 870 C190 760 365 806 610 923 C855 1040 1110 1018 1345 888 C1540 780 1688 775 2030 865 L2030 1120 L-80 1120Z" fill="#d95d41"/>
+  <path d="M-80 830 C195 720 372 777 612 885 C861 998 1090 975 1338 844 C1564 725 1718 731 2030 824" fill="none" stroke="#f3ede1" stroke-width="20" opacity=".88"/>
+  <g id="sound-waves" fill="none" stroke="#4b4b44" opacity=".7">
+    <path d="M-80 704 C180 770 330 801 510 773 C720 740 860 625 1050 627 C1130 628 1192 647 1258 675" stroke-width="3"/>
+    <path d="M-80 724 C180 790 330 821 510 793 C720 760 860 645 1050 647 C1130 648 1192 667 1258 695" stroke-width="3"/>
+    <path d="M-80 744 C180 810 330 841 510 813 C720 780 860 665 1050 667 C1130 668 1192 687 1258 715" stroke-width="3"/>
+    <path d="M-80 764 C180 830 330 861 510 833 C720 800 860 685 1050 687 C1130 688 1192 707 1258 735" stroke-width="3"/>
+    <path d="M-80 784 C180 850 330 881 510 853 C720 820 860 705 1050 707 C1130 708 1192 727 1258 755" stroke-width="3"/>
+  </g>
+  <g id="piano-keys" transform="translate(164 272) rotate(-8)">
+    <rect width="530" height="174" rx="6" fill="#213b32"/>
+    <g fill="#f3ede1">
+      <rect x="18" y="16" width="67" height="142" rx="2"/><rect x="91" y="16" width="67" height="142" rx="2"/>
+      <rect x="164" y="16" width="67" height="142" rx="2"/><rect x="237" y="16" width="67" height="142" rx="2"/>
+      <rect x="310" y="16" width="67" height="142" rx="2"/><rect x="383" y="16" width="67" height="142" rx="2"/>
+      <rect x="456" y="16" width="56" height="142" rx="2"/>
+    </g>
+    <g fill="#213b32">
+      <rect x="70" y="16" width="31" height="87" rx="2"/><rect x="143" y="16" width="31" height="87" rx="2"/>
+      <rect x="289" y="16" width="31" height="87" rx="2"/><rect x="362" y="16" width="31" height="87" rx="2"/>
+      <rect x="435" y="16" width="31" height="87" rx="2"/>
+    </g>
+  </g>
+  <circle cx="246" cy="356" r="27" fill="#213b32"/>
+  <circle cx="246" cy="356" r="8" fill="#d95d41"/>
+  <path d="M1048 165 L1057 190 L1083 199 L1057 208 L1048 234 L1039 208 L1013 199 L1039 190Z" fill="#b9953e"/>
+  <g id="tonearm" fill="none" stroke="#b9953e" stroke-linecap="round">
+    <path d="M1845 835 C1883 758 1903 688 1884 616" stroke-width="12"/>
+    <path d="M1884 616 L1775 470" stroke-width="12"/>
+    <circle cx="1845" cy="835" r="22" fill="#b9953e" stroke="none"/>
+    <circle cx="1775" cy="470" r="25" fill="#b9953e" stroke="none"/>
+  </g>
+</svg>
