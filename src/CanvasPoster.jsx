@@ -489,7 +489,7 @@ export default function CanvasPoster({ settings, onRendered }) {
       visibleCanvas.width = nextCanvas.width;
       visibleCanvas.height = nextCanvas.height;
       visibleCanvas.getContext('2d').drawImage(nextCanvas, 0, 0);
-      onRendered(nextCanvas.toDataURL('image/png'));
+      onRendered(nextCanvas.toDataURL('image/png'), nextCanvas);
     });
     return () => { cancelled = true; };
   }, [settings, onRendered]);

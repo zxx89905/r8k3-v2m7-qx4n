@@ -69,11 +69,71 @@ test('album action forwards a validated Spotify album id', async () => {
   assert.equal(urls[1], 'https://api.spotify.com/v1/albums/4aawyAB9vmqN3uQ7FjRGTy');
 });
 
+test('match returns only an exact title and artist within five seconds', async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes('/api/token')) {
+      return new Response(JSON.stringify({ access_token: 'token', expires_in: 3600 }), { status: 200 });
+    }
+    return new Response(JSON.stringify({
+      tracks: {
+        items: [
+          { id: 'remaster', name: 'Nights - 2025 Remaster', duration_ms: 307000, artists: [{ name: 'Frank Ocean' }], uri: 'spotify:track:remaster', external_urls: { spotify: 'https://open.spotify.com/track/remaster' } },
+          { id: 'wrong-artist', name: 'Nights', duration_ms: 307000, artists: [{ name: 'Cover Artist' }], uri: 'spotify:track:wrong-artist', external_urls: { spotify: 'https://open.spotify.com/track/wrong-artist' } },
+          { id: 'too-long', name: 'Nights', duration_ms: 313001, artists: [{ name: 'Frank Ocean' }], uri: 'spotify:track:too-long', external_urls: { spotify: 'https://open.spotify.com/track/too-long' } },
+          { id: 'exact', name: 'Nights', duration_ms: 311500, artists: [{ name: 'Frank Ocean' }], uri: 'spotify:track:exact', external_urls: { spotify: 'https://open.spotify.com/track/exact' } },
+        ],
+      },
+    }), { status: 200 });
+  };
+  const handler = createSpotifyHandler({
+    fetchImpl,
+    env: { SPOTIFY_CLIENT_ID: 'id', SPOTIFY_CLIENT_SECRET: 'secret' },
+  });
+  const res = responseRecorder();
+
+  await handler(request({ action: 'match', title: ' Nights ', artist: 'FRANK OCEAN', durationMs: '307000' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, {
+    uri: 'spotify:track:exact',
+    externalUrl: 'https://open.spotify.com/track/exact',
+  });
+  assert.match(calls[1], /type=track/);
+  assert.match(calls[1], /limit=5/);
+  assert.match(calls[1], /track%3ANights/);
+  assert.match(calls[1], /artist%3AFRANK\+OCEAN/);
+});
+
+test('match returns an empty result when Spotify has no strict candidate', async () => {
+  const fetchImpl = async (url) => String(url).includes('/api/token')
+    ? new Response(JSON.stringify({ access_token: 'token', expires_in: 3600 }), { status: 200 })
+    : new Response(JSON.stringify({
+      tracks: {
+        items: [{ id: 'live', name: 'Nights - Live', duration_ms: 307000, artists: [{ name: 'Frank Ocean' }] }],
+      },
+    }), { status: 200 });
+  const res = responseRecorder();
+
+  await createSpotifyHandler({
+    fetchImpl,
+    env: { SPOTIFY_CLIENT_ID: 'id', SPOTIFY_CLIENT_SECRET: 'secret' },
+  })(request({ action: 'match', title: 'Nights', artist: 'Frank Ocean', durationMs: '307000' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body, { uri: '', externalUrl: '' });
+});
+
 test('invalid requests are rejected before Spotify is called', async () => {
   const cases = [
     [request({ action: 'search', q: '' }), 400],
     [request({ action: 'search', q: 'x'.repeat(101) }), 400],
     [request({ action: 'album', id: '../token' }), 400],
+    [request({ action: 'match', title: '', artist: 'Artist', durationMs: '200000' }), 400],
+    [request({ action: 'match', title: 'Song', artist: '', durationMs: '200000' }), 400],
+    [request({ action: 'match', title: 'Song', artist: 'Artist', durationMs: '0' }), 400],
+    [request({ action: 'match', title: 'Song', artist: 'Artist', durationMs: 'not-a-number' }), 400],
     [request({ action: 'unknown' }), 400],
     [request({ action: 'search', q: 'album' }, { method: 'POST' }), 405],
     [request({ action: 'search', q: 'album' }, { headers: { origin: 'https://example.com' } }), 403],

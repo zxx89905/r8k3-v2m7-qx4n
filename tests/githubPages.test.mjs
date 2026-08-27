@@ -13,4 +13,5 @@ test('site assets and build are compatible with a GitHub Pages project path', ()
   assert.match(appSource, /src="\.\/access-gate\.svg"/);
   assert.match(workflowSource, /actions\/deploy-pages/);
   assert.match(workflowSource, /enablement:\s*true/);
+  assert.match(workflowSource, /VITE_SPOTIFY_PROXY_URL:\s*\$\{\{\s*vars\.VITE_SPOTIFY_PROXY_URL\s*\}\}/);
 });

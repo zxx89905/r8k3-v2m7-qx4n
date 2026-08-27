@@ -25,6 +25,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          VITE_SPOTIFY_PROXY_URL: ${{ vars.VITE_SPOTIFY_PROXY_URL }}
       - uses: actions/configure-pages@v5
         with:
           enablement: true

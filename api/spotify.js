@@ -13,6 +13,10 @@ function json(res, status, body) {
   return res.status(status).json(body);
 }
 
+function normalize(value) {
+  return String(value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
 export function createSpotifyHandler({ fetchImpl = fetch, env = process.env, now = Date.now } = {}) {
   let token = '';
   let tokenExpiresAt = 0;
@@ -64,13 +68,30 @@ export function createSpotifyHandler({ fetchImpl = fetch, env = process.env, now
     const action = one(req.query?.action);
     const query = String(one(req.query?.q) || '').trim();
     const albumId = String(one(req.query?.id) || '').trim();
+    const title = String(one(req.query?.title) || '').trim();
+    const artist = String(one(req.query?.artist) || '').trim();
+    const durationMs = Number(one(req.query?.durationMs));
     let url;
+    let isMatch = false;
 
     if (action === 'search' && query && query.length <= 100) {
       const params = new URLSearchParams({ q: query, type: 'album', limit: '8' });
       url = `https://api.spotify.com/v1/search?${params}`;
     } else if (action === 'album' && /^[A-Za-z0-9]{1,64}$/.test(albumId)) {
       url = `https://api.spotify.com/v1/albums/${albumId}`;
+    } else if (
+      action === 'match'
+      && title && title.length <= 200
+      && artist && artist.length <= 200
+      && Number.isInteger(durationMs) && durationMs >= 1 && durationMs <= 3_600_000
+    ) {
+      const params = new URLSearchParams({
+        q: `track:${title} artist:${artist}`,
+        type: 'track',
+        limit: '5',
+      });
+      url = `https://api.spotify.com/v1/search?${params}`;
+      isMatch = true;
     } else {
       return json(res, 400, { error: 'Invalid Spotify request' });
     }
@@ -83,7 +104,20 @@ export function createSpotifyHandler({ fetchImpl = fetch, env = process.env, now
       if (!response.ok) {
         throw Object.assign(new Error('upstream failed'), { statusCode: 502 });
       }
-      return json(res, 200, await response.json());
+      const body = await response.json();
+      if (!isMatch) return json(res, 200, body);
+
+      const normalizedTitle = normalize(title);
+      const normalizedArtist = normalize(artist);
+      const match = body.tracks?.items?.find((track) => (
+        normalize(track.name) === normalizedTitle
+        && track.artists?.some((item) => normalize(item.name) === normalizedArtist)
+        && Math.abs(Number(track.duration_ms) - durationMs) <= 5_000
+      ));
+      return json(res, 200, {
+        uri: match?.uri || '',
+        externalUrl: match?.external_urls?.spotify || '',
+      });
     } catch (error) {
       const status = error.statusCode === 503 ? 503 : 502;
       const message = status === 503

@@ -1,43 +1,35 @@
-let cachedToken = null;
-let tokenExpiresAt = 0;
+const configuredProxyUrl = import.meta.env?.VITE_SPOTIFY_PROXY_URL || '';
 
-async function getToken() {
-  if (cachedToken && Date.now() < tokenExpiresAt) return cachedToken;
-  const clientId = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
-  const clientSecret = import.meta.env.VITE_SPOTIFY_CLIENT_SECRET;
-  if (!clientId || !clientSecret) throw new Error('Spotify credentials are missing in .env');
-  const response = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: 'Basic ' + btoa(clientId + ':' + clientSecret),
+export function createSpotifyClient({ fetchImpl = fetch, baseUrl = configuredProxyUrl } = {}) {
+  async function request(params) {
+    if (!baseUrl) throw new Error('Spotify proxy is not configured');
+    const url = new URL(baseUrl);
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+    const response = await fetchImpl(url);
+    if (!response.ok) throw new Error('Spotify proxy is unavailable');
+    return response.json();
+  }
+
+  return {
+    async searchAlbums(query) {
+      const data = await request({ action: 'search', q: query });
+      return data.albums?.items ?? [];
     },
-    body: 'grant_type=client_credentials',
-  });
-  if (!response.ok) throw new Error('Spotify authentication failed');
-  const data = await response.json();
-  cachedToken = data.access_token;
-  tokenExpiresAt = Date.now() + (data.expires_in - 60) * 1000;
-  return cachedToken;
+    getAlbum(id) {
+      return request({ action: 'album', id });
+    },
+    matchTrack({ title, artist, durationMs }) {
+      return request({ action: 'match', title, artist, durationMs: String(durationMs) });
+    },
+  };
 }
 
-async function spotifyRequest(path) {
-  const token = await getToken();
-  const response = await fetch('https://api.spotify.com/v1' + path, {
-    headers: { Authorization: 'Bearer ' + token },
-  });
-  if (!response.ok) throw new Error('Spotify request failed: ' + response.status);
-  return response.json();
-}
-
-export async function searchAlbums(query) {
-  const data = await spotifyRequest('/search?q=' + encodeURIComponent(query) + '&type=album&limit=8');
-  return data.albums?.items ?? [];
-}
-
-export async function getAlbum(id) {
-  return spotifyRequest('/albums/' + id);
-}
+const spotifyClient = createSpotifyClient();
+export const searchAlbums = spotifyClient.searchAlbums;
+export const getAlbum = spotifyClient.getAlbum;
+export const matchTrack = spotifyClient.matchTrack;
 
 function normalize(value) {
   return (value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();

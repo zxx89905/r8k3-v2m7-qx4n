@@ -1,14 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight, ChevronDown, Disc3, Download, ExternalLink,
   LoaderCircle, Music2, Palette, Search, Sparkles, Upload,
 } from 'lucide-react';
-import { getAlbum, getLyrics, searchAlbums } from './spotify';
+import {
+  getAlbum as getSpotifyAlbum,
+  getLyrics,
+  matchTrack,
+  searchAlbums as searchSpotifyAlbums,
+} from './spotify';
+import { getPublicAlbum, searchPublicAlbums } from './publicCatalog';
+import {
+  createCatalogRouter,
+  createLatestRequestGuard,
+  matchPublicTrack,
+  selectionForTrack,
+} from './catalogModes';
+import { createPosterDownload } from './posterDownload';
 import CanvasPoster from './CanvasPoster';
 import { extractPosterPaletteVariants, sampleImagePixels } from './colorUtils';
 
 const defaultLyrics = 'Add or edit the song lyrics here.';
 const ACCESS_STORAGE_KEY = 'songform-access-granted';
+const catalogRouter = createCatalogRouter({
+  spotify: { searchAlbums: searchSpotifyAlbums, getAlbum: getSpotifyAlbum },
+  publicCatalog: { searchAlbums: searchPublicAlbums, getAlbum: getPublicAlbum },
+});
 const sizes = [
   { id: 'a4', name: 'A4 竖版', width: 2480, height: 3508 },
   { id: 'two-three', name: '2:3 竖版', width: 2400, height: 3600 },
@@ -172,8 +189,15 @@ function App() {
   const [isLoadingLyrics, setIsLoadingLyrics] = useState(false);
   const [image, setImage] = useState('');
   const [status, setStatus] = useState('');
+  const [spotifyMatchStatus, setSpotifyMatchStatus] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingAlbum, setIsLoadingAlbum] = useState(false);
+  const [isMatchingSpotify, setIsMatchingSpotify] = useState(false);
+  const matchRequestRef = useRef(0);
+  const renderedCanvasRef = useRef(null);
+  const searchRequestGuardRef = useRef(createLatestRequestGuard());
+  const albumRequestGuardRef = useRef(createLatestRequestGuard());
+  const lyricsRequestGuardRef = useRef(createLatestRequestGuard());
   // Keep the calibrated A4 look as the first-run poster preset.
   const [palette, setPalette] = useState(palettes[7]);
   const [siteTheme, setSiteTheme] = useState(siteThemes[0].id);
@@ -211,7 +235,7 @@ function App() {
   const posterSettings = useMemo(() => ({
     ...sizes.find((item) => item.id === sizeId),
     ...settings,
-    cover: customCover || (creationMode === 'spotify' ? selectedAlbum?.images?.[0]?.url : ''),
+    cover: customCover || (creationMode !== 'manual' ? selectedAlbum?.images?.[0]?.url : ''),
     title: creationMode === 'manual' ? manualData.title : posterTitle || selectedTrack?.name,
     artist: creationMode === 'manual' ? manualData.artist : posterArtist || selectedAlbum?.artists?.map((artist) => artist.name).join(', '),
     albumName: creationMode === 'manual' ? manualData.albumName : selectedAlbum?.name,
@@ -229,55 +253,128 @@ function App() {
   }), [customCover, creationMode, manualData, selectedAlbum, selectedTrack, posterTitle, posterArtist, posterLyrics, palette, settings, sizeId, activeTrackUri]);
 
 
-  const handleRendered = useCallback((url) => setImage(url), []);
+  const handleRendered = useCallback((url, canvas) => {
+    renderedCanvasRef.current = canvas;
+    setImage(url);
+  }, []);
 
   const handleSearch = async (event) => {
     event?.preventDefault();
     if (!query.trim()) return;
+    const request = searchRequestGuardRef.current.start();
     setIsSearching(true);
     setStatus('');
     try {
-      setAlbums(await searchAlbums(query.trim()));
+      const results = await catalogRouter.searchAlbums(creationMode, query.trim());
+      if (request.isCurrent()) setAlbums(results);
     } catch (error) {
-      setStatus('搜索失败，请检查网络或 Spotify 配置。');
+      if (request.isCurrent()) setStatus('搜索服务暂时不可用，请稍后重试。');
     } finally {
-      setIsSearching(false);
+      if (request.isCurrent()) setIsSearching(false);
     }
   };
 
   const loadTrackLyrics = async (album, track) => {
     if (!track) return;
+    const request = lyricsRequestGuardRef.current.start();
     setIsLoadingLyrics(true);
     try {
       const result = await getLyrics(track, album);
-      setLyrics(result.lyrics || defaultLyrics);
-      setLyricsSource(result.source || '');
+      if (request.isCurrent()) {
+        setLyrics(result.lyrics || defaultLyrics);
+        setLyricsSource(result.source || '');
+      }
     } catch {
-      setLyricsSource('');
+      if (request.isCurrent()) setLyricsSource('');
     } finally {
-      setIsLoadingLyrics(false);
+      if (request.isCurrent()) setIsLoadingLyrics(false);
     }
   };
 
+  const selectAutomaticTrack = async (album, track) => {
+    const requestId = ++matchRequestRef.current;
+    const selection = selectionForTrack(album, track);
+    setSelectedTrack(selection.track);
+    setPosterTitle(selection.title);
+    setPosterArtist(selection.artist);
+    setSpotifyMatchStatus('');
+    if (!track) {
+      lyricsRequestGuardRef.current.invalidate();
+      setLyrics(defaultLyrics);
+      setLyricsSource('');
+      setIsLoadingLyrics(false);
+      setIsMatchingSpotify(false);
+      return;
+    }
+
+    const lyricTask = loadTrackLyrics(album, track);
+    if (creationMode !== 'public') {
+      setIsMatchingSpotify(false);
+      await lyricTask;
+      return;
+    }
+
+    setIsMatchingSpotify(true);
+    const matchTask = matchPublicTrack(track, matchTrack)
+      .then((matchedTrack) => {
+        if (matchRequestRef.current !== requestId) return;
+        setSelectedTrack((current) => current?.id === track.id ? matchedTrack : current);
+        setSpotifyMatchStatus(matchedTrack.uri
+          ? '已匹配 Spotify 扫码条。'
+          : '未匹配到 Spotify，扫码条已隐藏。');
+      })
+      .catch(() => {
+        if (matchRequestRef.current !== requestId) return;
+        setSpotifyMatchStatus('未匹配到 Spotify，扫码条已隐藏。');
+      })
+      .finally(() => {
+        if (matchRequestRef.current === requestId) setIsMatchingSpotify(false);
+      });
+    await Promise.all([lyricTask, matchTask]);
+  };
+
   const chooseAlbum = async (album) => {
+    const request = albumRequestGuardRef.current.start();
+    matchRequestRef.current += 1;
+    lyricsRequestGuardRef.current.invalidate();
+    setSelectedTrack(null);
+    setSpotifyMatchStatus('');
+    setIsLoadingLyrics(false);
+    setIsMatchingSpotify(false);
     setIsLoadingAlbum(true);
     setStatus('');
     try {
-      const detail = await getAlbum(album.id);
+      const detail = await catalogRouter.getAlbum(creationMode, album.id);
+      if (!request.isCurrent()) return;
       setSelectedAlbum(detail);
       const firstTrack = detail.tracks?.items?.[0] ?? null;
-      setSelectedTrack(firstTrack);
-      setPosterTitle(firstTrack?.name || '');
-      setPosterArtist(detail.artists?.map((artist) => artist.name).join(', ') || '');
-      await loadTrackLyrics(detail, firstTrack);
+      await selectAutomaticTrack(detail, firstTrack);
     } catch (error) {
-      setStatus('专辑信息加载失败，请稍后重试。');
+      if (request.isCurrent()) setStatus('专辑信息加载失败，请稍后重试。');
     } finally {
-      setIsLoadingAlbum(false);
+      if (request.isCurrent()) setIsLoadingAlbum(false);
     }
   };
 
   const updateSetting = (key, value) => setSettings((current) => ({ ...current, [key]: value }));
+  const handleModeChange = (nextMode) => {
+    matchRequestRef.current += 1;
+    searchRequestGuardRef.current.invalidate();
+    albumRequestGuardRef.current.invalidate();
+    lyricsRequestGuardRef.current.invalidate();
+    setCreationMode(nextMode);
+    setAlbums([]);
+    setSelectedAlbum(null);
+    setSelectedTrack(null);
+    setPosterTitle('');
+    setPosterArtist('');
+    setStatus('');
+    setSpotifyMatchStatus('');
+    setIsSearching(false);
+    setIsLoadingAlbum(false);
+    setIsLoadingLyrics(false);
+    setIsMatchingSpotify(false);
+  };
   function handleSizeChange(nextSizeId) {
     setSizeId(nextSizeId);
     const preset = sizeLayoutPresets[nextSizeId];
@@ -292,7 +389,7 @@ function App() {
     }
   };
   const handleAutoPalette = () => {
-    const coverUrl = customCover || (creationMode === 'spotify' ? selectedAlbum?.images?.[0]?.url : '');
+    const coverUrl = customCover || (creationMode !== 'manual' ? selectedAlbum?.images?.[0]?.url : '');
     if (!coverUrl) {
       setPaletteStatus('请先选择歌曲或上传一张封面。');
       return;
@@ -337,16 +434,20 @@ function App() {
   };
   const changeTrack = async (trackId) => {
     const track = selectedAlbum.tracks.items.find((item) => item.id === trackId);
-    setSelectedTrack(track);
-    setPosterTitle(track?.name || '');
-    await loadTrackLyrics(selectedAlbum, track);
+    await selectAutomaticTrack(selectedAlbum, track);
   };
 
-  const downloadPoster = () => {
-    if (!image) return;
+  const downloadPoster = (format = 'png') => {
+    const download = createPosterDownload({
+      format,
+      pngUrl: image,
+      canvas: renderedCanvasRef.current,
+      title: creationMode === 'manual' ? manualData.title : selectedTrack?.name,
+    });
+    if (!download) return;
     const link = document.createElement('a');
-    link.href = image;
-    link.download = ((creationMode === 'manual' ? manualData.title : selectedTrack?.name) || 'song') + ' - lyric circle.png';
+    link.href = download.href;
+    link.download = download.filename;
     link.click();
   };
 
@@ -395,20 +496,20 @@ function App() {
         <section className="workspace" id="editor">
           <aside className="control-panel">
             <div className="panel-heading"><div><p className="section-kicker">海报设置</p><h2>编辑你的海报</h2></div><Music2 size={21} /></div>
-            <div className="creation-mode" role="group" aria-label="制作方式"><button type="button" className={creationMode === 'spotify' ? 'is-active' : ''} onClick={() => setCreationMode('spotify')}><Search size={15} /> Spotify 自动</button><button type="button" className={creationMode === 'manual' ? 'is-active' : ''} onClick={() => setCreationMode('manual')}><Upload size={15} /> 手动制作</button></div>
-            {creationMode === 'spotify' && <><form className="search-form" onSubmit={handleSearch}>
-              <label htmlFor="song-search">搜索 Spotify 专辑或艺术家</label>
+            <div className="creation-mode" role="group" aria-label="制作方式"><button type="button" className={creationMode === 'spotify' ? 'is-active' : ''} onClick={() => handleModeChange('spotify')}><Disc3 size={15} /> Spotify 自动</button><button type="button" className={creationMode === 'public' ? 'is-active' : ''} onClick={() => handleModeChange('public')}><Search size={15} /> 公开目录</button><button type="button" className={creationMode === 'manual' ? 'is-active' : ''} onClick={() => handleModeChange('manual')}><Upload size={15} /> 手动制作</button></div>
+            {creationMode !== 'manual' && <><form className="search-form" onSubmit={handleSearch}>
+              <label htmlFor="song-search">{creationMode === 'spotify' ? '搜索 Spotify 专辑或艺术家' : '搜索公开目录中的专辑或艺术家'}</label>
               <div className="search-row"><Search size={17} /><input id="song-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入专辑名或艺术家名" /><button type="submit" aria-label="搜索"><Search size={17} /></button></div>
             </form>
             <div className="quick-searches">{['The Weeknd', 'Taylor Swift', 'Frank Ocean'].map((item) => <button key={item} type="button" onClick={() => setQuery(item)}>{item}</button>)}</div>
-            {isSearching && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在搜索 Spotify...</p>}
+            {isSearching && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在搜索{creationMode === 'spotify' ? ' Spotify' : '公开目录'}...</p>}
             {status && <p className="inline-status error">{status}</p>}
             {!!albums.length && <div className="album-results"><div className="results-head"><span>专辑结果</span><span>共 {albums.length} 个</span></div>{albums.map((album) => <button className={'album-result ' + (selectedAlbum?.id === album.id ? 'is-selected' : '')} key={album.id} type="button" onClick={() => chooseAlbum(album)}><img src={album.images?.[2]?.url || album.images?.[0]?.url} alt="" /><span><strong>{album.name}</strong><small>{album.artists?.map((artist) => artist.name).join(', ')}</small></span><ChevronDown size={15} /></button>)}</div>}
             {isLoadingAlbum && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在加载专辑和歌词...</p>}</>}
 
             {previewReady && <div className="editor-fields">
               <div className="field-group"><label htmlFor="size-select">海报尺寸</label><select id="size-select" value={sizeId} onChange={(event) => handleSizeChange(event.target.value)}>{sizes.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.width}×{item.height}</option>)}</select></div>
-              {creationMode === 'spotify' && <div className="field-group"><label htmlFor="track-select">选择歌曲</label><select id="track-select" value={selectedTrack?.id || ''} onChange={(event) => changeTrack(event.target.value)}>{selectedAlbum.tracks.items.map((track) => <option value={track.id} key={track.id}>{track.name}</option>)}</select></div>}
+              {creationMode !== 'manual' && <div className="field-group"><label htmlFor="track-select">选择歌曲</label><select id="track-select" value={selectedTrack?.id || ''} onChange={(event) => changeTrack(event.target.value)}>{selectedAlbum.tracks.items.map((track) => <option value={track.id} key={track.id}>{track.name}</option>)}</select>{creationMode === 'public' && (isMatchingSpotify ? <small className="field-help"><LoaderCircle className="spin" size={13} /> 正在匹配 Spotify 扫码条...</small> : spotifyMatchStatus && <small className="field-help">{spotifyMatchStatus}</small>)}</div>}
               {creationMode === 'manual' && <div className="manual-notice"><strong>离线手动制作</strong><span>所有内容直接在本机填写，不调用 Spotify 或歌词 API。</span></div>}
               <p className="control-subhead">歌曲文字</p>
               <div className="field-group"><label htmlFor="poster-title">歌曲名</label><input id="poster-title" value={creationMode === 'manual' ? manualData.title : posterTitle} onChange={(event) => creationMode === 'manual' ? updateManualData('title', event.target.value) : setPosterTitle(event.target.value)} placeholder={creationMode === 'manual' ? '输入歌曲名' : ''} /></div>
@@ -432,14 +533,14 @@ function App() {
               <div className="field-grid"><div className="field-group"><label htmlFor="disc-color">唱片颜色</label><input id="disc-color" type="color" value={palette.disc} onChange={(event) => setPalette((current) => ({ ...current, disc: event.target.value }))} /></div><div className="field-group"><label htmlFor="accent-color">唱臂装饰颜色</label><input id="accent-color" type="color" value={palette.accent} onChange={(event) => setPalette((current) => ({ ...current, accent: event.target.value }))} /></div></div>
               <p className="control-subhead">扫码条与底部留白</p>
               <NumericControl id="barcode-y" label="扫码条上下位置" min={78} max={93} step={0.5} value={settings.barcodeY} onChange={(value) => updateSetting('barcodeY', value)} />
-              <div className="field-actions"><label className="upload-control"><Upload size={15} /> 上传自定义封面（封面版 / 取色）<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCoverUpload} /></label><label className="upload-control"><Upload size={15} /> 上传 TTF / OTF 字体<input type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} /></label><label className="toggle-control"><input type="checkbox" checked={settings.showBarcode} onChange={(event) => updateSetting('showBarcode', event.target.checked)} /><span /> 显示 Spotify 扫码条</label></div>
+              <div className="field-actions"><label className="upload-control"><Upload size={15} /> 上传自定义封面（封面版 / 取色）<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCoverUpload} /></label><label className="upload-control"><Upload size={15} /> 上传 TTF / OTF 字体<input type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} /></label><label className={'toggle-control ' + (!activeTrackUri ? 'is-disabled' : '')}><input type="checkbox" checked={settings.showBarcode} disabled={!activeTrackUri} onChange={(event) => updateSetting('showBarcode', event.target.checked)} /><span /> 显示 Spotify 扫码条</label></div>
             </div>}
           </aside>
 
           <section className="preview-panel">
-              <div className="preview-topline"><div><p className="section-kicker">实时预览</p><h2>{creationMode === 'manual' ? manualData.title || '手动制作海报' : selectedTrack ? selectedTrack.name : '先搜索并选择一首歌曲'}</h2></div><div className="preview-actions"><label className="frame-picker"><span>预览相框</span><select value={previewFrame} onChange={(event) => setPreviewFrame(event.target.value)} aria-label="预览相框">{previewFrames.map((frame) => <option value={frame.id} key={frame.id}>{frame.name}</option>)}</select></label><button className="download-button" type="button" onClick={downloadPoster} disabled={!image}><Download size={16} /> 下载高清 PNG</button></div></div>
+              <div className="preview-topline"><div><p className="section-kicker">实时预览</p><h2>{creationMode === 'manual' ? manualData.title || '手动制作海报' : selectedTrack ? selectedTrack.name : '先搜索并选择一首歌曲'}</h2></div><div className="preview-actions"><label className="frame-picker"><span>预览相框</span><select value={previewFrame} onChange={(event) => setPreviewFrame(event.target.value)} aria-label="预览相框">{previewFrames.map((frame) => <option value={frame.id} key={frame.id}>{frame.name}</option>)}</select></label><button className="download-button" type="button" onClick={() => downloadPoster('png')} disabled={!image}><Download size={16} /> 下载高清 PNG</button><button className="download-button download-button-secondary" type="button" onClick={() => downloadPoster('jpeg')} disabled={!image}><Download size={16} /> 下载高清 JPG</button></div></div>
               <div className="poster-stage">{previewReady ? <><div className={'preview-frame preview-frame-' + previewFrame}><img className="poster-image" src={image} alt="圆圈歌词海报预览" /></div><CanvasPoster settings={posterSettings} onRendered={handleRendered} /></> : <div className="empty-poster"><Palette size={31} /><p>选择歌曲后<br />这里会实时显示海报</p></div>}</div>
-              <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode === 'spotify' && selectedTrack?.external_urls?.spotify && <a href={selectedTrack.external_urls.spotify} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
+              <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode !== 'manual' && selectedTrack?.external_urls?.spotify && <a href={selectedTrack.external_urls.spotify} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
           </section>
         </section>
       </main>
