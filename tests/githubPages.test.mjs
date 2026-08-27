@@ -12,4 +12,5 @@ test('site assets and build are compatible with a GitHub Pages project path', ()
   assert.match(indexSource, /href="\.\/favicon\.svg"/);
   assert.match(appSource, /src="\.\/access-gate\.svg"/);
   assert.match(workflowSource, /actions\/deploy-pages/);
+  assert.match(workflowSource, /enablement:\s*true/);
 });
