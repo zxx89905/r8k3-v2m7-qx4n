@@ -152,9 +152,18 @@ input[type="range"] { accent-color: #d45b3e; width: 100%; }
 .download-button { display: flex; align-items: center; gap: 8px; border: 1px solid #243b31; border-radius: 3px; padding: 10px 14px; background: #243b31; color: #f3f1ea; font-size: .74rem; font-weight: 750; }
 .download-button-secondary { border-color: var(--ui-border-strong, #c4c9c0); background: var(--ui-input, #fffefa); color: var(--ui-heading, #243b31); }
 .download-button:disabled { cursor: not-allowed; opacity: .4; }
-.poster-stage { min-height: 0; flex: 1; display: grid; place-items: center; padding: 14px 18px 26px; overflow: hidden; background: #dcded5; border: 1px solid #c9cdc3; }
-.preview-frame { --frame-inset: 0px; --frame-image-offset: 0px; position: relative; display: grid; place-items: center; max-width: 94%; max-height: none; padding: var(--frame-inset); transition: padding .18s ease, box-shadow .18s ease, background .18s ease; }
+.poster-stage-shell { position: relative; min-height: 0; flex: 1; display: flex; }
+.poster-stage { min-height: 0; flex: 1; display: grid; place-items: center; padding: 14px 18px 26px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; background: #dcded5; border: 1px solid #c9cdc3; }
+.poster-stage.is-zoomed { place-items: start; }
+.preview-zoom-surface { display: grid; place-items: start; margin: auto; }
+.preview-frame { --frame-inset: 0px; --frame-image-offset: 0px; position: relative; display: grid; place-items: center; max-width: 94%; max-height: none; padding: var(--frame-inset); transform-origin: top left; transition: padding .18s ease, box-shadow .18s ease, background .18s ease, transform .15s ease; }
 .poster-image { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100vh - 330px); object-fit: contain; box-shadow: 0 16px 34px #243b3130; }
+.preview-zoom-toolbar { position: absolute; right: 12px; bottom: 12px; z-index: 2; display: grid; grid-template-columns: 34px 50px 34px 34px; align-items: center; overflow: hidden; border: 1px solid var(--ui-control-border, #c7cbc2); border-radius: 3px; background: color-mix(in srgb, var(--ui-input, #fffefa) 94%, transparent); box-shadow: 0 7px 20px #243b3124; backdrop-filter: blur(8px); }
+.preview-zoom-toolbar button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-right: 1px solid var(--ui-control-border, #d3d5cb); color: var(--ui-heading, #243b31); background: transparent; }
+.preview-zoom-toolbar button:last-child { border-right: 0; border-left: 1px solid var(--ui-control-border, #d3d5cb); }
+.preview-zoom-toolbar button:hover:not(:disabled) { color: var(--ui-input, #fffefa); background: var(--ui-brand, #243b31); }
+.preview-zoom-toolbar button:disabled { cursor: not-allowed; opacity: .35; }
+.preview-zoom-toolbar span { display: block; color: var(--ui-heading, #243b31); font-size: .68rem; font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
 .preview-frame:not(.preview-frame-none) .poster-image { max-height: calc(100vh - 330px - var(--frame-image-offset)); }
 .preview-frame-black { --frame-inset: 13px; --frame-image-offset: 26px; background: #171717; box-shadow: 0 15px 34px #11111144, inset 0 0 0 1px #ffffff18; }
 .preview-frame-white { --frame-inset: 11px; --frame-image-offset: 22px; background: #f7f7f4; border: 1px solid #c9cbc6; box-shadow: 0 16px 36px #243b3138, inset 0 0 0 1px #ffffff; }
@@ -244,6 +253,7 @@ input[type="range"] { accent-color: #d45b3e; width: 100%; }
   .frame-picker select { flex: 1; }
   .download-button { width: 100%; justify-content: center; }
   .poster-stage { min-height: auto; padding: 13px; }
+  .preview-zoom-toolbar { right: 8px; bottom: 8px; }
   .preview-frame { max-width: 100%; max-height: none; }
   .poster-image { width: 100%; max-height: none; }
   .preview-footer, .site-footer { display: block; line-height: 1.8; }

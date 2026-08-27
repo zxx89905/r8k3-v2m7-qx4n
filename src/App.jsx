@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight, ChevronDown, Disc3, Download, ExternalLink,
-  LoaderCircle, Music2, Palette, Search, Sparkles, Upload,
+  LoaderCircle, Maximize2, Music2, Palette, Search, Sparkles, Upload,
+  ZoomIn, ZoomOut,
 } from 'lucide-react';
 import {
   getAlbum as getSpotifyAlbum,
@@ -22,6 +23,13 @@ import {
 import { createPosterDownload } from './posterDownload';
 import CanvasPoster from './CanvasPoster';
 import { extractPosterPaletteVariants, sampleImagePixels } from './colorUtils';
+import {
+  PREVIEW_ZOOM_MAX,
+  PREVIEW_ZOOM_MIN,
+  clampPreviewZoom,
+  scalePreviewSize,
+  stepPreviewZoom,
+} from './previewZoom';
 
 const defaultLyrics = 'Add or edit the song lyrics here.';
 const ACCESS_STORAGE_KEY = 'songform-access-granted';
@@ -203,6 +211,9 @@ function App() {
   const [paletteStatus, setPaletteStatus] = useState('');
   const [paletteRecommendations, setPaletteRecommendations] = useState([]);
   const [previewFrame, setPreviewFrame] = useState('none');
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [previewFitSize, setPreviewFitSize] = useState(null);
+  const previewFrameRef = useRef(null);
   useEffect(() => () => {
     if (customCover?.startsWith('blob:')) URL.revokeObjectURL(customCover);
   }, [customCover]);
@@ -384,12 +395,38 @@ function App() {
     setIsLoadingAlbum(false);
     setIsLoadingLyrics(false);
     setIsMatchingSpotify(false);
+    setPreviewZoom(100);
+    setPreviewFitSize(null);
+  };
+  const setPreviewZoomLevel = (nextZoom) => {
+    const normalizedZoom = clampPreviewZoom(nextZoom);
+    if (normalizedZoom !== 100 && !previewFitSize && previewFrameRef.current) {
+      const { width, height } = previewFrameRef.current.getBoundingClientRect();
+      setPreviewFitSize({ width, height });
+    }
+    if (normalizedZoom === 100) setPreviewFitSize(null);
+    setPreviewZoom(normalizedZoom);
+  };
+  const changePreviewZoom = (direction) => {
+    setPreviewZoomLevel(stepPreviewZoom(previewZoom, direction));
+  };
+  const handlePreviewFrameChange = (nextFrame) => {
+    setPreviewFrame(nextFrame);
+    setPreviewZoom(100);
+    setPreviewFitSize(null);
   };
   function handleSizeChange(nextSizeId) {
     setSizeId(nextSizeId);
+    setPreviewZoom(100);
+    setPreviewFitSize(null);
     const preset = sizeLayoutPresets[nextSizeId];
     if (preset) setSettings((current) => ({ ...current, ...preset }));
   }
+  const handlePreviewWheel = (event) => {
+    if (!event.ctrlKey || !previewReady) return;
+    event.preventDefault();
+    changePreviewZoom(event.deltaY < 0 ? 1 : -1);
+  };
   const updateManualData = (key, value) => setManualData((current) => ({ ...current, [key]: value }));
   const handleCoverUpload = (event) => {
     const file = event.target.files?.[0];
@@ -549,9 +586,19 @@ function App() {
           </aside>
 
           <section className="preview-panel">
-              <div className="preview-topline"><div><p className="section-kicker">实时预览</p><h2>{creationMode === 'manual' ? manualData.title || '手动制作海报' : selectedTrack ? selectedTrack.name : '先搜索并选择一首歌曲'}</h2></div><div className="preview-actions"><label className="frame-picker"><span>预览相框</span><select value={previewFrame} onChange={(event) => setPreviewFrame(event.target.value)} aria-label="预览相框">{previewFrames.map((frame) => <option value={frame.id} key={frame.id}>{frame.name}</option>)}</select></label><button className="download-button" type="button" onClick={() => downloadPoster('png')} disabled={!image}><Download size={16} /> 下载高清 PNG</button><button className="download-button download-button-secondary" type="button" onClick={() => downloadPoster('jpeg')} disabled={!image}><Download size={16} /> 下载高清 JPG</button></div></div>
-              <div className="poster-stage">{previewReady ? <><div className={'preview-frame preview-frame-' + previewFrame}><img className="poster-image" src={image} alt="圆圈歌词海报预览" /></div><CanvasPoster settings={posterSettings} onRendered={handleRendered} /></> : <div className="empty-poster"><Palette size={31} /><p>选择歌曲后<br />这里会实时显示海报</p></div>}</div>
-              <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode !== 'manual' && activeSpotifyUrl && <a href={activeSpotifyUrl} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
+            <div className="preview-topline"><div><p className="section-kicker">实时预览</p><h2>{creationMode === 'manual' ? manualData.title || '手动制作海报' : selectedTrack ? selectedTrack.name : '先搜索并选择一首歌曲'}</h2></div><div className="preview-actions"><label className="frame-picker"><span>预览相框</span><select value={previewFrame} onChange={(event) => handlePreviewFrameChange(event.target.value)} aria-label="预览相框">{previewFrames.map((frame) => <option value={frame.id} key={frame.id}>{frame.name}</option>)}</select></label><button className="download-button" type="button" onClick={() => downloadPoster('png')} disabled={!image}><Download size={16} /> 下载高清 PNG</button><button className="download-button download-button-secondary" type="button" onClick={() => downloadPoster('jpeg')} disabled={!image}><Download size={16} /> 下载高清 JPG</button></div></div>
+            <div className="poster-stage-shell">
+              <div className={'poster-stage ' + (previewZoom > 100 ? 'is-zoomed' : '')} onWheel={handlePreviewWheel}>
+                {previewReady ? <><div className="preview-zoom-surface" style={previewFitSize ? scalePreviewSize(previewFitSize, previewZoom) : undefined}><div ref={previewFrameRef} className={'preview-frame preview-frame-' + previewFrame} style={previewFitSize ? { width: previewFitSize.width, height: previewFitSize.height, maxWidth: 'none', transform: `scale(${previewZoom / 100})` } : undefined}><img className="poster-image" src={image} alt="圆圈歌词海报预览" /></div></div><CanvasPoster settings={posterSettings} onRendered={handleRendered} /></> : <div className="empty-poster"><Palette size={31} /><p>选择歌曲后<br />这里会实时显示海报</p></div>}
+              </div>
+              {previewReady && <div className="preview-zoom-toolbar" aria-label="预览缩放工具栏">
+                <button type="button" onClick={() => changePreviewZoom(-1)} disabled={previewZoom <= PREVIEW_ZOOM_MIN} aria-label="缩小预览" title="缩小预览"><ZoomOut size={16} /></button>
+                <span aria-live="polite">{previewZoom}%</span>
+                <button type="button" onClick={() => changePreviewZoom(1)} disabled={previewZoom >= PREVIEW_ZOOM_MAX} aria-label="放大预览" title="放大预览"><ZoomIn size={16} /></button>
+                <button type="button" onClick={() => setPreviewZoomLevel(100)} disabled={previewZoom === 100} aria-label="适合窗口" title="适合窗口"><Maximize2 size={16} /></button>
+              </div>}
+            </div>
+            <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode !== 'manual' && activeSpotifyUrl && <a href={activeSpotifyUrl} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
           </section>
         </section>
       </main>
