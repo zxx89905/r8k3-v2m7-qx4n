@@ -1,4 +1,5 @@
-const configuredProxyUrl = import.meta.env?.VITE_SPOTIFY_PROXY_URL || '';
+const PUBLIC_PROXY_URL = 'https://r8k3-v2m7-qx4n.vercel.app/api/spotify';
+const configuredProxyUrl = import.meta.env?.VITE_SPOTIFY_PROXY_URL || PUBLIC_PROXY_URL;
 
 export function createSpotifyClient({ fetchImpl = fetch, baseUrl = configuredProxyUrl } = {}) {
   async function request(params) {

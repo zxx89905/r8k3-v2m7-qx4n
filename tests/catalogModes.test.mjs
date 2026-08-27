@@ -5,7 +5,10 @@ import {
   createCatalogRouter,
   createLatestRequestGuard,
   matchPublicTrack,
+  normalizeSpotifyTrackUri,
+  resolveTrackUri,
   selectionForTrack,
+  spotifyTrackUrlFromUri,
 } from '../src/catalogModes.js';
 
 test('catalog router uses the selected automatic catalog', async () => {
@@ -129,4 +132,58 @@ test('replacement album requests clear stale lyric and match loading states', as
   const chooseAlbum = source.match(/const chooseAlbum = async[\s\S]+?setIsLoadingAlbum\(true\);/)?.[0] || '';
   assert.match(chooseAlbum, /setIsLoadingLyrics\(false\);/);
   assert.match(chooseAlbum, /setIsMatchingSpotify\(false\);/);
+  assert.match(chooseAlbum, /setPublicSpotifyReference\(''\);/);
+  assert.match(chooseAlbum, /setImage\(''\);/);
+});
+
+test('mode changes clear the rendered poster so stale downloads stay disabled', async () => {
+  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const handleModeChange = source.match(/const handleModeChange = \(nextMode\) => \{[\s\S]+?\n  \};/)?.[0] || '';
+  assert.match(handleModeChange, /setImage\(''\);/);
+});
+
+test('Spotify song links and URIs normalize to a scannable track URI', () => {
+  assert.equal(
+    normalizeSpotifyTrackUri('https://open.spotify.com/track/43rA71bccXFGD4C8GOpIlN?si=share-token'),
+    'spotify:track:43rA71bccXFGD4C8GOpIlN',
+  );
+  assert.equal(
+    normalizeSpotifyTrackUri('https://open.spotify.com/intl-zh/track/43rA71bccXFGD4C8GOpIlN'),
+    'spotify:track:43rA71bccXFGD4C8GOpIlN',
+  );
+  assert.equal(
+    normalizeSpotifyTrackUri('spotify:track:43rA71bccXFGD4C8GOpIlN'),
+    'spotify:track:43rA71bccXFGD4C8GOpIlN',
+  );
+  assert.equal(normalizeSpotifyTrackUri('https://open.spotify.com/album/lover'), '');
+  assert.equal(normalizeSpotifyTrackUri('https://open.spotify.com/43rA71bccXFGD4C8GOpIlN'), '');
+  assert.equal(normalizeSpotifyTrackUri('https://example.com/track/43rA71bccXFGD4C8GOpIlN'), '');
+});
+
+test('a public-catalog link overrides failed automatic matching', () => {
+  assert.equal(resolveTrackUri({
+    mode: 'public',
+    publicReference: 'https://open.spotify.com/track/43rA71bccXFGD4C8GOpIlN',
+    automaticUri: '',
+  }), 'spotify:track:43rA71bccXFGD4C8GOpIlN');
+
+  assert.equal(resolveTrackUri({
+    mode: 'public',
+    publicReference: '',
+    automaticUri: 'spotify:track:0Jlcvv8IykzHaSmj49uNW8',
+  }), 'spotify:track:0Jlcvv8IykzHaSmj49uNW8');
+
+  assert.equal(resolveTrackUri({
+    mode: 'manual',
+    manualReference: 'spotify:track:43rA71bccXFGD4C8GOpIlN',
+    automaticUri: '',
+  }), 'spotify:track:43rA71bccXFGD4C8GOpIlN');
+});
+
+test('a Spotify track URI produces the matching public song URL', () => {
+  assert.equal(
+    spotifyTrackUrlFromUri('spotify:track:43rA71bccXFGD4C8GOpIlN'),
+    'https://open.spotify.com/track/43rA71bccXFGD4C8GOpIlN',
+  );
+  assert.equal(spotifyTrackUrlFromUri(''), '');
 });

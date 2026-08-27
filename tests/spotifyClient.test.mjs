@@ -17,6 +17,22 @@ test('searchAlbums calls the proxy and returns album items', async () => {
   assert.equal(requestedUrl, 'https://proxy.example/api/spotify?action=search&q=Frank+Ocean');
 });
 
+test('production client keeps a public proxy fallback when build variables are absent', async () => {
+  let requestedUrl = '';
+  const client = createSpotifyClient({
+    fetchImpl: async (url) => {
+      requestedUrl = String(url);
+      return new Response(JSON.stringify({ albums: { items: [] } }), { status: 200 });
+    },
+  });
+
+  await client.searchAlbums('Taylor Swift');
+  assert.equal(
+    requestedUrl,
+    'https://r8k3-v2m7-qx4n.vercel.app/api/spotify?action=search&q=Taylor+Swift',
+  );
+});
+
 test('getAlbum calls the proxy album action', async () => {
   let requestedUrl = '';
   const client = createSpotifyClient({

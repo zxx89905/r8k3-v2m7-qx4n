@@ -14,7 +14,10 @@ import {
   createCatalogRouter,
   createLatestRequestGuard,
   matchPublicTrack,
+  normalizeSpotifyTrackUri,
+  resolveTrackUri,
   selectionForTrack,
+  spotifyTrackUrlFromUri,
 } from './catalogModes';
 import { createPosterDownload } from './posterDownload';
 import CanvasPoster from './CanvasPoster';
@@ -161,13 +164,6 @@ function parseDuration(value) {
   return Math.max(0, seconds * 1000);
 }
 
-function normalizeSpotifyUri(value) {
-  const clean = String(value || '').trim();
-  if (clean.startsWith('spotify:track:')) return clean;
-  const match = clean.match(/open\.spotify\.com\/track\/([A-Za-z0-9]+)/);
-  return match ? 'spotify:track:' + match[1] : '';
-}
-
 function App() {
   const [isUnlocked, setIsUnlocked] = useState(() => {
     try {
@@ -190,6 +186,7 @@ function App() {
   const [image, setImage] = useState('');
   const [status, setStatus] = useState('');
   const [spotifyMatchStatus, setSpotifyMatchStatus] = useState('');
+  const [publicSpotifyReference, setPublicSpotifyReference] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingAlbum, setIsLoadingAlbum] = useState(false);
   const [isMatchingSpotify, setIsMatchingSpotify] = useState(false);
@@ -228,8 +225,16 @@ function App() {
     return selectCompleteLyrics(activeLyrics, limits[lyricsLengthMode]);
   }, [activeLyrics, lyricsLengthMode]);
 
-  const manualTrackUri = normalizeSpotifyUri(manualData.spotifyUri);
-  const activeTrackUri = creationMode === 'manual' ? manualTrackUri : selectedTrack?.uri;
+  const publicTrackUri = normalizeSpotifyTrackUri(publicSpotifyReference);
+  const activeTrackUri = resolveTrackUri({
+    mode: creationMode,
+    manualReference: manualData.spotifyUri,
+    publicReference: publicSpotifyReference,
+    automaticUri: selectedTrack?.uri,
+  });
+  const activeSpotifyUrl = creationMode === 'public' && publicTrackUri
+    ? spotifyTrackUrlFromUri(publicTrackUri)
+    : selectedTrack?.external_urls?.spotify;
   const previewReady = creationMode === 'manual' || Boolean(selectedAlbum);
 
   const posterSettings = useMemo(() => ({
@@ -294,6 +299,7 @@ function App() {
   const selectAutomaticTrack = async (album, track) => {
     const requestId = ++matchRequestRef.current;
     const selection = selectionForTrack(album, track);
+    setPublicSpotifyReference('');
     setSelectedTrack(selection.track);
     setPosterTitle(selection.title);
     setPosterArtist(selection.artist);
@@ -338,6 +344,8 @@ function App() {
     matchRequestRef.current += 1;
     lyricsRequestGuardRef.current.invalidate();
     setSelectedTrack(null);
+    setPublicSpotifyReference('');
+    setImage('');
     setSpotifyMatchStatus('');
     setIsLoadingLyrics(false);
     setIsMatchingSpotify(false);
@@ -368,6 +376,8 @@ function App() {
     setSelectedTrack(null);
     setPosterTitle('');
     setPosterArtist('');
+    setImage('');
+    setPublicSpotifyReference('');
     setStatus('');
     setSpotifyMatchStatus('');
     setIsSearching(false);
@@ -509,7 +519,8 @@ function App() {
 
             {previewReady && <div className="editor-fields">
               <div className="field-group"><label htmlFor="size-select">海报尺寸</label><select id="size-select" value={sizeId} onChange={(event) => handleSizeChange(event.target.value)}>{sizes.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.width}×{item.height}</option>)}</select></div>
-              {creationMode !== 'manual' && <div className="field-group"><label htmlFor="track-select">选择歌曲</label><select id="track-select" value={selectedTrack?.id || ''} onChange={(event) => changeTrack(event.target.value)}>{selectedAlbum.tracks.items.map((track) => <option value={track.id} key={track.id}>{track.name}</option>)}</select>{creationMode === 'public' && (isMatchingSpotify ? <small className="field-help"><LoaderCircle className="spin" size={13} /> 正在匹配 Spotify 扫码条...</small> : spotifyMatchStatus && <small className="field-help">{spotifyMatchStatus}</small>)}</div>}
+              {creationMode !== 'manual' && <div className="field-group"><label htmlFor="track-select">选择歌曲</label><select id="track-select" value={selectedTrack?.id || ''} onChange={(event) => changeTrack(event.target.value)}>{selectedAlbum.tracks.items.map((track) => <option value={track.id} key={track.id}>{track.name}</option>)}</select></div>}
+              {creationMode === 'public' && <div className="field-group"><label htmlFor="public-spotify">Spotify 歌曲链接 / URI</label><input id="public-spotify" value={publicSpotifyReference} onChange={(event) => setPublicSpotifyReference(event.target.value)} placeholder="自动匹配失败时粘贴歌曲链接" />{publicSpotifyReference.trim() ? (publicTrackUri ? <small className="field-help">已使用你粘贴的 Spotify 链接生成扫码条。</small> : <small className="field-help error">链接格式不正确，请粘贴 Spotify 歌曲链接。</small>) : (isMatchingSpotify ? <small className="field-help"><LoaderCircle className="spin" size={13} /> 正在匹配 Spotify 扫码条...</small> : spotifyMatchStatus && <small className="field-help">{spotifyMatchStatus}</small>)}</div>}
               {creationMode === 'manual' && <div className="manual-notice"><strong>离线手动制作</strong><span>所有内容直接在本机填写，不调用 Spotify 或歌词 API。</span></div>}
               <p className="control-subhead">歌曲文字</p>
               <div className="field-group"><label htmlFor="poster-title">歌曲名</label><input id="poster-title" value={creationMode === 'manual' ? manualData.title : posterTitle} onChange={(event) => creationMode === 'manual' ? updateManualData('title', event.target.value) : setPosterTitle(event.target.value)} placeholder={creationMode === 'manual' ? '输入歌曲名' : ''} /></div>
@@ -540,7 +551,7 @@ function App() {
           <section className="preview-panel">
               <div className="preview-topline"><div><p className="section-kicker">实时预览</p><h2>{creationMode === 'manual' ? manualData.title || '手动制作海报' : selectedTrack ? selectedTrack.name : '先搜索并选择一首歌曲'}</h2></div><div className="preview-actions"><label className="frame-picker"><span>预览相框</span><select value={previewFrame} onChange={(event) => setPreviewFrame(event.target.value)} aria-label="预览相框">{previewFrames.map((frame) => <option value={frame.id} key={frame.id}>{frame.name}</option>)}</select></label><button className="download-button" type="button" onClick={() => downloadPoster('png')} disabled={!image}><Download size={16} /> 下载高清 PNG</button><button className="download-button download-button-secondary" type="button" onClick={() => downloadPoster('jpeg')} disabled={!image}><Download size={16} /> 下载高清 JPG</button></div></div>
               <div className="poster-stage">{previewReady ? <><div className={'preview-frame preview-frame-' + previewFrame}><img className="poster-image" src={image} alt="圆圈歌词海报预览" /></div><CanvasPoster settings={posterSettings} onRendered={handleRendered} /></> : <div className="empty-poster"><Palette size={31} /><p>选择歌曲后<br />这里会实时显示海报</p></div>}</div>
-              <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode !== 'manual' && selectedTrack?.external_urls?.spotify && <a href={selectedTrack.external_urls.spotify} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
+              <div className="preview-footer"><span><span className="mini-dot" /> {posterSettings.width} × {posterSettings.height} 像素 · 高清输出</span>{creationMode !== 'manual' && activeSpotifyUrl && <a href={activeSpotifyUrl} target="_blank" rel="noreferrer">在 Spotify 中打开 <ExternalLink size={13} /></a>}</div>
           </section>
         </section>
       </main>

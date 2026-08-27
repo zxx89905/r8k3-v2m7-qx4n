@@ -4,6 +4,37 @@ function clientFor(mode, clients) {
   throw new Error(`${mode} mode does not use a catalog`);
 }
 
+export function normalizeSpotifyTrackUri(value) {
+  const clean = String(value || '').trim();
+  const uriMatch = clean.match(/^spotify:track:([A-Za-z0-9]{22})$/);
+  if (uriMatch) return `spotify:track:${uriMatch[1]}`;
+
+  try {
+    const url = new URL(clean);
+    if (url.protocol !== 'https:' || url.hostname !== 'open.spotify.com') return '';
+    const path = url.pathname.split('/').filter(Boolean);
+    const trackIndex = path.lastIndexOf('track');
+    if (trackIndex < 0) return '';
+    const trackId = path[trackIndex + 1] || '';
+    return /^[A-Za-z0-9]{22}$/.test(trackId) ? `spotify:track:${trackId}` : '';
+  } catch {
+    return '';
+  }
+}
+
+export function resolveTrackUri({ mode, manualReference, publicReference, automaticUri }) {
+  if (mode === 'manual') return normalizeSpotifyTrackUri(manualReference);
+  if (mode === 'public') {
+    return normalizeSpotifyTrackUri(publicReference) || automaticUri || '';
+  }
+  return automaticUri || '';
+}
+
+export function spotifyTrackUrlFromUri(uri) {
+  const match = String(uri || '').match(/^spotify:track:([A-Za-z0-9]{22})$/);
+  return match ? `https://open.spotify.com/track/${match[1]}` : '';
+}
+
 export function createCatalogRouter(clients) {
   return {
     async searchAlbums(mode, query) {
