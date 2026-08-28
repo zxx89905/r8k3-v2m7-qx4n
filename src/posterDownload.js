@@ -1,15 +1,22 @@
-function safeFilename(value) {
-  return (String(value || 'song')
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
-    .trim() || 'song');
-}
+import { encodeRgbTiff } from './tiffExport.js';
 
-export function createPosterDownload({ format, pngUrl, canvas, title }) {
-  if (!pngUrl) return null;
-  const isJpeg = format === 'jpeg';
-  if (isJpeg && !canvas) return null;
+export function createPosterDownload({ format, canvas, filename, dpi = 300, createObjectURL = URL.createObjectURL }) {
+  if (!canvas || !filename) return null;
+  if (format === 'jpeg') {
+    return {
+      href: canvas.toDataURL('image/jpeg', 0.95),
+      filename,
+      revoke: false,
+    };
+  }
+  if (format !== 'tiff') return null;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const bytes = encodeRgbTiff({ width: canvas.width, height: canvas.height, rgba, dpi });
+  const blob = new Blob([bytes], { type: 'image/tiff' });
   return {
-    href: isJpeg ? canvas.toDataURL('image/jpeg', 0.95) : pngUrl,
-    filename: `${safeFilename(title)} - lyric circle.${isJpeg ? 'jpg' : 'png'}`,
+    href: createObjectURL(blob),
+    filename,
+    revoke: true,
   };
 }

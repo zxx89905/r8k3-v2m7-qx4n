@@ -1,23 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createPosterDownload } from '../src/posterDownload.js';
 
-test('PNG download preserves the rendered lossless data URL', () => {
-  const result = createPosterDownload({
-    format: 'png',
-    pngUrl: 'data:image/png;base64,png-data',
-    canvas: { toDataURL() { throw new Error('PNG should not be recompressed'); } },
-    title: 'Nights',
-  });
-
-  assert.deepEqual(result, {
-    href: 'data:image/png;base64,png-data',
-    filename: 'Nights - lyric circle.png',
-  });
-});
-
-test('JPG download flattens the rendered canvas at high quality', () => {
+test('JPG download flattens the supplied canvas at high quality and preserves the requested filename', () => {
   const calls = [];
   const canvas = {
     width: 2480,
@@ -30,9 +15,8 @@ test('JPG download flattens the rendered canvas at high quality', () => {
 
   const result = createPosterDownload({
     format: 'jpeg',
-    pngUrl: 'data:image/png;base64,png-data',
     canvas,
-    title: 'I Forgot / That You Existed',
+    filename: 'My Poster 8X12.jpg',
   });
 
   assert.deepEqual(calls, [{
@@ -43,13 +27,39 @@ test('JPG download flattens the rendered canvas at high quality', () => {
   }]);
   assert.deepEqual(result, {
     href: 'data:image/jpeg;base64,jpg-data',
-    filename: 'I Forgot _ That You Existed - lyric circle.jpg',
+    filename: 'My Poster 8X12.jpg',
+    revoke: false,
   });
 });
 
-test('editor offers separate high-resolution PNG and JPG downloads', async () => {
-  const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  assert.match(source, /下载高清 PNG/);
-  assert.match(source, /下载高清 JPG/);
-  assert.match(source, /downloadPoster\('jpeg'\)/);
+test('TIF download encodes the canvas pixels and exposes a revocable object URL', async () => {
+  const pixels = new Uint8ClampedArray([255, 0, 0, 255, 0, 128, 255, 255]);
+  const canvas = {
+    width: 2,
+    height: 1,
+    getContext() {
+      return { getImageData: () => ({ data: pixels }) };
+    },
+  };
+  let capturedBlob;
+  const result = createPosterDownload({
+    format: 'tiff',
+    canvas,
+    filename: 'My Poster 8X12.tif',
+    dpi: 180,
+    createObjectURL(blob) {
+      capturedBlob = blob;
+      return 'blob:tiff-download';
+    },
+  });
+
+  assert.equal(result.href, 'blob:tiff-download');
+  assert.equal(result.filename, 'My Poster 8X12.tif');
+  assert.equal(result.revoke, true);
+  assert.equal(capturedBlob.type, 'image/tiff');
+  assert.ok((await capturedBlob.arrayBuffer()).byteLength > pixels.length);
+});
+
+test('PNG is no longer an export format', () => {
+  assert.equal(createPosterDownload({ format: 'png', canvas: {}, filename: 'poster.png' }), null);
 });

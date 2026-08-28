@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { getBarcodeGeometry } from './posterGeometry';
 
 const BASE_WIDTH = 1200;
 
@@ -402,7 +403,7 @@ export async function renderPoster(canvas, settings) {
   const {
     width, height, cover, title, artist, lyrics, paper, disc, ink, accent,
     fontFamily, ringSize, ringGap, charSpacing, wordSpacing = 1.45, lyricSize, titleSize, artistSize, releaseDateSize, releaseDateY = 84, titleY, artistY,
-    showBarcode, trackUri, albumName, releaseDate, durationMs, barcodeY,
+    showBarcode, trackUri, albumName, releaseDate, durationMs, barcodeY, barcodeScale = 1,
     playerStyle, playerScale, coverEffect, centerStyle, trackNumber,
     spiralDirection, lyricsBackgroundShape,
   } = settings;
@@ -471,10 +472,9 @@ export async function renderPoster(canvas, settings) {
   if (showBarcode) {
     const codeY = logicalHeight * ((barcodeY + (compactLayout ? -1 : 0)) / 100);
     const codeCenterX = artworkX;
-    const codeWidth = 284;
-    const codeHeight = 79;
+    const { width: codeWidth, height: codeHeight, fallbackWidth, fallbackHeight, fallbackOffsetY } = getBarcodeGeometry(barcodeScale);
     const drawn = await drawSpotifyCode(ctx, trackUri, codeCenterX - codeWidth / 2, codeY, codeWidth, codeHeight, paper, ink);
-    if (!drawn) drawFallbackBarcode(ctx, trackUri || title || 'song', codeCenterX - 120, codeY + 10, 240, 59, ink);
+    if (!drawn) drawFallbackBarcode(ctx, trackUri || title || 'song', codeCenterX - fallbackWidth / 2, codeY + fallbackOffsetY, fallbackWidth, fallbackHeight, ink);
   }
 }
 
