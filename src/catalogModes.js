@@ -37,6 +37,9 @@ export function spotifyTrackUrlFromUri(uri) {
 
 export function createCatalogRouter(clients) {
   return {
+    async searchTracks(mode, query) {
+      return clientFor(mode, clients).searchTracks(query);
+    },
     async searchAlbums(mode, query) {
       return clientFor(mode, clients).searchAlbums(query);
     },
@@ -63,7 +66,7 @@ export function selectionForTrack(album, track) {
   return {
     track: track || null,
     title: track?.name || '',
-    artist: track ? album?.artists?.map((item) => item.name).join(', ') || '' : '',
+    artist: track ? (track.artists || album?.artists)?.map((item) => item.name).join(', ') || '' : '',
   };
 }
 

@@ -9,8 +9,17 @@ import {
 } from '../src/posterOptions.js';
 import { getBarcodeGeometry } from '../src/posterGeometry.js';
 
-test('the twelve fixed palettes are labelled continuously from A through L', () => {
-  assert.deepEqual(palettes.map((item) => item.code), [...'ABCDEFGHIJKL']);
+test('the eight curated palettes are labelled continuously from A through H', () => {
+  assert.deepEqual(palettes.map((item) => item.code), [...'ABCDEFGH']);
+});
+
+test('fixed palettes cover mainstream album color families without the removed duplicates', () => {
+  const names = palettes.map((item) => item.name).join(' ');
+  assert.match(names, /橙/);
+  assert.match(names, /紫/);
+  assert.match(names, /黑白/);
+  assert.doesNotMatch(names, /赤陶海军蓝|蓝灰珊瑚/);
+  assert.ok(palettes.some((item) => item.paper === '#fffdf8' && item.ink === '#171717'));
 });
 
 test('square posters use the current tuned browser settings and hide the barcode by default', () => {

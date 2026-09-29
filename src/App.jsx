@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpRight, ChevronDown, Disc3, Download, ExternalLink,
   LoaderCircle, Maximize2, Music2, Palette, Search, Sparkles, Upload,
-  ZoomIn, ZoomOut,
+  X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import {
-  getAlbum as getSpotifyAlbum,
+  getTrack as getSpotifyTrack,
   getLyrics,
   matchTrack,
-  searchAlbums as searchSpotifyAlbums,
+  searchTracks as searchSpotifyTracks,
 } from './spotify';
-import { getPublicAlbum, searchPublicAlbums } from './publicCatalog';
+import { searchPublicTracks } from './publicCatalog';
 import {
   createCatalogRouter,
   createLatestRequestGuard,
@@ -37,8 +37,8 @@ import {
 const defaultLyrics = 'Add or edit the song lyrics here.';
 const ACCESS_STORAGE_KEY = 'songform-access-granted';
 const catalogRouter = createCatalogRouter({
-  spotify: { searchAlbums: searchSpotifyAlbums, getAlbum: getSpotifyAlbum },
-  publicCatalog: { searchAlbums: searchPublicAlbums, getAlbum: getPublicAlbum },
+  spotify: { searchTracks: searchSpotifyTracks },
+  publicCatalog: { searchTracks: searchPublicTracks },
 });
 const sizes = [
   { id: 'a4', name: 'A4 竖版', width: 2480, height: 3508 },
@@ -165,7 +165,8 @@ function App() {
   });
   const [creationMode, setCreationMode] = useState('spotify');
   const [query, setQuery] = useState('');
-  const [albums, setAlbums] = useState([]);
+  const [tracks, setTracks] = useState([]);
+  const [spotifyReference, setSpotifyReference] = useState('');
   const [selectedAlbum, setSelectedAlbum] = useState(null);
   const [selectedTrack, setSelectedTrack] = useState(null);
   const [posterTitle, setPosterTitle] = useState('');
@@ -179,20 +180,23 @@ function App() {
   const [spotifyMatchStatus, setSpotifyMatchStatus] = useState('');
   const [publicSpotifyReference, setPublicSpotifyReference] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [isLoadingAlbum, setIsLoadingAlbum] = useState(false);
+  const [isLoadingTrack, setIsLoadingTrack] = useState(false);
   const [isMatchingSpotify, setIsMatchingSpotify] = useState(false);
   const matchRequestRef = useRef(0);
   const renderedCanvasRef = useRef(null);
+  const coverInputRef = useRef(null);
   const searchRequestGuardRef = useRef(createLatestRequestGuard());
-  const albumRequestGuardRef = useRef(createLatestRequestGuard());
+  const trackRequestGuardRef = useRef(createLatestRequestGuard());
   const lyricsRequestGuardRef = useRef(createLatestRequestGuard());
-  // Keep the calibrated A4 look as the first-run poster preset.
-  const [palette, setPalette] = useState(palettes[7]);
+  // Warm white gives new custom orders a neutral, print-friendly starting point.
+  const [palette, setPalette] = useState(palettes[0]);
   const [siteTheme, setSiteTheme] = useState(siteThemes[0].id);
   const [customCover, setCustomCover] = useState('');
+  const [posterReleaseDate, setPosterReleaseDate] = useState('');
   const [isAutoColoring, setIsAutoColoring] = useState(false);
   const [paletteStatus, setPaletteStatus] = useState('');
   const [paletteRecommendations, setPaletteRecommendations] = useState([]);
+  const [showAllPaletteRecommendations, setShowAllPaletteRecommendations] = useState(false);
   const [previewFrame, setPreviewFrame] = useState('none');
   const [previewZoom, setPreviewZoom] = useState(100);
   const [previewFitSize, setPreviewFitSize] = useState(null);
@@ -243,7 +247,7 @@ function App() {
     title: creationMode === 'manual' ? manualData.title : posterTitle || selectedTrack?.name,
     artist: creationMode === 'manual' ? manualData.artist : posterArtist || selectedAlbum?.artists?.map((artist) => artist.name).join(', '),
     albumName: creationMode === 'manual' ? manualData.albumName : selectedAlbum?.name,
-    releaseDate: creationMode === 'manual' ? manualData.releaseDate : selectedAlbum?.release_date,
+    releaseDate: creationMode === 'manual' ? manualData.releaseDate : posterReleaseDate,
     durationMs: creationMode === 'manual' ? parseDuration(manualData.duration) : selectedTrack?.duration_ms,
     trackNumber: creationMode === 'manual' ? 1 : selectedTrack?.track_number,
     lyrics: posterLyrics,
@@ -254,7 +258,7 @@ function App() {
     trackUri: activeTrackUri,
     barcodeEnabled: settings.showBarcode,
     showBarcode: settings.showBarcode && Boolean(activeTrackUri),
-  }), [customCover, creationMode, manualData, selectedAlbum, selectedTrack, posterTitle, posterArtist, posterLyrics, palette, settings, sizeId, activeTrackUri]);
+  }), [customCover, creationMode, manualData, posterReleaseDate, selectedAlbum, selectedTrack, posterTitle, posterArtist, posterLyrics, palette, settings, sizeId, activeTrackUri]);
 
 
   const handleRendered = useCallback((url, canvas) => {
@@ -262,15 +266,68 @@ function App() {
     setImage(url);
   }, []);
 
+  const applyTrackSelection = (track) => {
+    const album = { ...track.album, tracks: { items: [track] } };
+    matchRequestRef.current += 1;
+    lyricsRequestGuardRef.current.invalidate();
+    renderedCanvasRef.current = null;
+    setImage('');
+    setIsLoadingLyrics(false);
+    setIsMatchingSpotify(false);
+    setStatus('');
+    setSelectedAlbum(album);
+    setPosterReleaseDate(album.release_date || '');
+    void selectAutomaticTrack(album, track);
+  };
+
+  const chooseTrack = (track) => {
+    trackRequestGuardRef.current.invalidate();
+    setIsLoadingTrack(false);
+    applyTrackSelection(track);
+  };
+
+  const loadSpotifyReference = async (reference) => {
+    const uri = normalizeSpotifyTrackUri(reference);
+    if (!uri) {
+      setStatus('请粘贴有效的 Spotify 歌曲链接或 spotify:track URI。');
+      return;
+    }
+    const request = trackRequestGuardRef.current.start();
+    searchRequestGuardRef.current.invalidate();
+    setIsSearching(false);
+    setIsLoadingTrack(true);
+    setStatus('');
+    try {
+      const track = await getSpotifyTrack(uri.split(':')[2]);
+      if (!request.isCurrent()) return;
+      if (!track?.id || !track?.album) throw new Error('Missing Spotify track');
+      setTracks([track]);
+      applyTrackSelection(track);
+    } catch {
+      if (request.isCurrent()) setStatus('无法读取这首 Spotify 歌曲，请检查链接后重试。');
+    } finally {
+      if (request.isCurrent()) setIsLoadingTrack(false);
+    }
+  };
+
   const handleSearch = async (event) => {
     event?.preventDefault();
     if (!query.trim()) return;
+    if (creationMode === 'spotify' && /^(?:https?:\/\/|spotify:)/i.test(query.trim())) {
+      await loadSpotifyReference(query.trim());
+      return;
+    }
     const request = searchRequestGuardRef.current.start();
+    trackRequestGuardRef.current.invalidate();
+    setIsLoadingTrack(false);
     setIsSearching(true);
     setStatus('');
     try {
-      const results = await catalogRouter.searchAlbums(creationMode, query.trim());
-      if (request.isCurrent()) setAlbums(results);
+      const results = await catalogRouter.searchTracks(creationMode, query.trim());
+      if (request.isCurrent()) {
+        setTracks(results);
+        if (!results.length) setStatus('没有找到歌曲。可以换个歌名，或粘贴 Spotify 歌曲链接精准加载。');
+      }
     } catch (error) {
       if (request.isCurrent()) setStatus('搜索服务暂时不可用，请稍后重试。');
     } finally {
@@ -338,49 +395,26 @@ function App() {
     await Promise.all([lyricTask, matchTask]);
   };
 
-  const chooseAlbum = async (album) => {
-    const request = albumRequestGuardRef.current.start();
-    matchRequestRef.current += 1;
-    lyricsRequestGuardRef.current.invalidate();
-    setSelectedTrack(null);
-    setPublicSpotifyReference('');
-    setImage('');
-    setSpotifyMatchStatus('');
-    setIsLoadingLyrics(false);
-    setIsMatchingSpotify(false);
-    setIsLoadingAlbum(true);
-    setStatus('');
-    try {
-      const detail = await catalogRouter.getAlbum(creationMode, album.id);
-      if (!request.isCurrent()) return;
-      setSelectedAlbum(detail);
-      const firstTrack = detail.tracks?.items?.[0] ?? null;
-      await selectAutomaticTrack(detail, firstTrack);
-    } catch (error) {
-      if (request.isCurrent()) setStatus('专辑信息加载失败，请稍后重试。');
-    } finally {
-      if (request.isCurrent()) setIsLoadingAlbum(false);
-    }
-  };
-
   const updateSetting = (key, value) => setSettings((current) => ({ ...current, [key]: value }));
   const handleModeChange = (nextMode) => {
     matchRequestRef.current += 1;
     searchRequestGuardRef.current.invalidate();
-    albumRequestGuardRef.current.invalidate();
+    trackRequestGuardRef.current.invalidate();
     lyricsRequestGuardRef.current.invalidate();
     setCreationMode(nextMode);
-    setAlbums([]);
+    setTracks([]);
+    setSpotifyReference('');
     setSelectedAlbum(null);
     setSelectedTrack(null);
     setPosterTitle('');
     setPosterArtist('');
+    setPosterReleaseDate('');
     setImage('');
     setPublicSpotifyReference('');
     setStatus('');
     setSpotifyMatchStatus('');
     setIsSearching(false);
-    setIsLoadingAlbum(false);
+    setIsLoadingTrack(false);
     setIsLoadingLyrics(false);
     setIsMatchingSpotify(false);
     setPreviewZoom(100);
@@ -427,6 +461,13 @@ function App() {
       setPaletteStatus('封面已更新，可以识别配色。');
     }
   };
+  const handleClearCover = () => {
+    setCustomCover('');
+    setPaletteRecommendations([]);
+    setShowAllPaletteRecommendations(false);
+    setPaletteStatus('自定义封面已清空。');
+    if (coverInputRef.current) coverInputRef.current.value = '';
+  };
   const handleAutoPalette = () => {
     const coverUrl = customCover || (creationMode !== 'manual' ? selectedAlbum?.images?.[0]?.url : '');
     if (!coverUrl) {
@@ -448,8 +489,9 @@ function App() {
         const pixels = sampleImagePixels(context.getImageData(0, 0, size, size), 3);
         const recommendations = extractPosterPaletteVariants(pixels);
         setPaletteRecommendations(recommendations);
+        setShowAllPaletteRecommendations(false);
         setPalette(recommendations[0]);
-        setPaletteStatus('已生成 3 套封面推荐配色。');
+        setPaletteStatus('已生成 6 套封面推荐配色。');
       } catch {
         setPaletteStatus('封面无法读取颜色，请上传本地图片后重试。');
       } finally {
@@ -471,11 +513,6 @@ function App() {
     document.fonts.add(font);
     updateSetting('fontFamily', fontName);
   };
-  const changeTrack = async (trackId) => {
-    const track = selectedAlbum.tracks.items.find((item) => item.id === trackId);
-    await selectAutomaticTrack(selectedAlbum, track);
-  };
-
   const downloadPoster = async (format, framed = false) => {
     const activeSize = sizes.find((item) => item.id === sizeId);
     const exportSize = resolveExportSize(exportSizeId, activeSize);
@@ -538,7 +575,7 @@ function App() {
           <div className="hero-copy-block">
             <p className="eyebrow"><Sparkles size={14} /> SONGFORM STUDIO / 音乐视觉工作室</p>
             <h1>把一首歌，<em>做成一张值得被收藏的海报。</em></h1>
-            <p className="intro-copy">从 Spotify 专辑到圆圈歌词排版，把一首歌的情绪、节奏和记忆，整理成一张真正属于你的视觉作品。</p>
+            <p className="intro-copy">从 Spotify 歌曲到圆圈歌词排版，把一首歌的情绪、节奏和记忆，整理成一张真正属于你的视觉作品。</p>
             <div className="hero-actions"><a className="hero-primary" href="#editor">开始制作海报 <ArrowUpRight size={16} /></a><a className="hero-secondary" href="#capabilities">浏览创作能力 <span>03</span></a></div>
             <div className="hero-proof"><span className="proof-line" /> <span>实时生成 · 高清导出 · 预览相框</span></div>
           </div>
@@ -560,18 +597,18 @@ function App() {
             <div className="panel-heading"><div><p className="section-kicker">海报设置</p><h2>编辑你的海报</h2></div><Music2 size={21} /></div>
             <div className="creation-mode" role="group" aria-label="制作方式"><button type="button" className={creationMode === 'spotify' ? 'is-active' : ''} onClick={() => handleModeChange('spotify')}><Disc3 size={15} /> Spotify 自动</button><button type="button" className={creationMode === 'public' ? 'is-active' : ''} onClick={() => handleModeChange('public')}><Search size={15} /> 公开目录</button><button type="button" className={creationMode === 'manual' ? 'is-active' : ''} onClick={() => handleModeChange('manual')}><Upload size={15} /> 手动制作</button></div>
             {creationMode !== 'manual' && <><form className="search-form" onSubmit={handleSearch}>
-              <label htmlFor="song-search">{creationMode === 'spotify' ? '搜索 Spotify 专辑或艺术家' : '搜索公开目录中的专辑或艺术家'}</label>
-              <div className="search-row"><Search size={17} /><input id="song-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入专辑名或艺术家名" /><button type="submit" aria-label="搜索"><Search size={17} /></button></div>
+              <label htmlFor="song-search">{creationMode === 'spotify' ? '搜索 Spotify 歌曲' : '搜索公开目录中的歌曲'}</label>
+              <div className="search-row"><Search size={17} /><input id="song-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入歌名或歌手名" /><button type="submit" aria-label="搜索歌曲"><Search size={17} /></button></div>
             </form>
             <div className="quick-searches">{['The Weeknd', 'Taylor Swift', 'Frank Ocean'].map((item) => <button key={item} type="button" onClick={() => setQuery(item)}>{item}</button>)}</div>
+            {creationMode === 'spotify' && <form className="spotify-link-form" onSubmit={(event) => { event.preventDefault(); void loadSpotifyReference(spotifyReference); }}><label htmlFor="spotify-track-link">粘贴 Spotify 歌曲链接，精准加载</label><div className="spotify-link-row"><input id="spotify-track-link" value={spotifyReference} onChange={(event) => setSpotifyReference(event.target.value)} placeholder="https://open.spotify.com/track/..." /><button type="submit" disabled={isLoadingTrack}>加载歌曲</button></div></form>}
             {isSearching && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在搜索{creationMode === 'spotify' ? ' Spotify' : '公开目录'}...</p>}
             {status && <p className="inline-status error">{status}</p>}
-            {!!albums.length && <div className="album-results"><div className="results-head"><span>专辑结果</span><span>共 {albums.length} 个</span></div>{albums.map((album) => <button className={'album-result ' + (selectedAlbum?.id === album.id ? 'is-selected' : '')} key={album.id} type="button" onClick={() => chooseAlbum(album)}><img src={album.images?.[2]?.url || album.images?.[0]?.url} alt="" /><span><strong>{album.name}</strong><small>{album.artists?.map((artist) => artist.name).join(', ')}</small></span><ChevronDown size={15} /></button>)}</div>}
-            {isLoadingAlbum && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在加载专辑和歌词...</p>}</>}
+            {!!tracks.length && <div className="album-results"><div className="results-head"><span>歌曲结果</span><span>{tracks.length === 30 ? '前 30 首' : `共 ${tracks.length} 首`}</span></div>{tracks.map((track) => <button className={'album-result ' + (selectedTrack?.id === track.id ? 'is-selected' : '')} key={track.id} type="button" onClick={() => chooseTrack(track)}><img src={track.album?.images?.[2]?.url || track.album?.images?.[0]?.url} alt="" /><span><strong>{track.name}</strong><small>{track.artists?.map((artist) => artist.name).join(', ')} · {track.album?.name}</small></span><ChevronDown size={15} /></button>)}</div>}
+            {isLoadingTrack && <p className="inline-status"><LoaderCircle className="spin" size={15} /> 正在加载 Spotify 歌曲...</p>}</>}
 
             {previewReady && <div className="editor-fields">
               <div className="field-group"><label htmlFor="size-select">海报尺寸</label><select id="size-select" value={sizeId} onChange={(event) => handleSizeChange(event.target.value)}>{sizes.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.width}×{item.height}</option>)}</select></div>
-              {creationMode !== 'manual' && <div className="field-group"><label htmlFor="track-select">选择歌曲</label><select id="track-select" value={selectedTrack?.id || ''} onChange={(event) => changeTrack(event.target.value)}>{selectedAlbum.tracks.items.map((track) => <option value={track.id} key={track.id}>{track.name}</option>)}</select></div>}
               {creationMode === 'public' && <div className="field-group"><label htmlFor="public-spotify">Spotify 歌曲链接 / URI</label><input id="public-spotify" value={publicSpotifyReference} onChange={(event) => setPublicSpotifyReference(event.target.value)} placeholder="自动匹配失败时粘贴歌曲链接" />{publicSpotifyReference.trim() ? (publicTrackUri ? <small className="field-help">已使用你粘贴的 Spotify 链接生成扫码条。</small> : <small className="field-help error">链接格式不正确，请粘贴 Spotify 歌曲链接。</small>) : (isMatchingSpotify ? <small className="field-help"><LoaderCircle className="spin" size={13} /> 正在匹配 Spotify 扫码条...</small> : spotifyMatchStatus && <small className="field-help">{spotifyMatchStatus}</small>)}</div>}
               {creationMode === 'manual' && <div className="manual-notice"><strong>离线手动制作</strong><span>所有内容直接在本机填写，不调用 Spotify 或歌词 API。</span></div>}
               <p className="control-subhead">歌曲文字</p>
@@ -579,11 +616,12 @@ function App() {
               <div className="field-grid"><NumericControl id="title-size" label="歌曲名字号" min={30} max={78} value={settings.titleSize} onChange={(value) => updateSetting('titleSize', value)} /><NumericControl id="title-y" label="歌曲名上下位置" min={62} max={86} value={settings.titleY} onChange={(value) => updateSetting('titleY', value)} /></div>
               <div className="field-group"><label htmlFor="poster-artist">歌手名</label><input id="poster-artist" value={creationMode === 'manual' ? manualData.artist : posterArtist} onChange={(event) => creationMode === 'manual' ? updateManualData('artist', event.target.value) : setPosterArtist(event.target.value)} placeholder={creationMode === 'manual' ? '输入歌手名' : ''} /></div>
               <div className="field-grid"><NumericControl id="artist-size" label="歌手名字号" min={22} max={52} value={settings.artistSize} onChange={(value) => updateSetting('artistSize', value)} /><NumericControl id="artist-y" label="歌手名上下位置" min={68} max={90} value={settings.artistY} onChange={(value) => updateSetting('artistY', value)} /></div>
+              <div className="field-group"><label htmlFor="poster-release-date">发行日期内容</label><input id="poster-release-date" value={creationMode === 'manual' ? manualData.releaseDate : posterReleaseDate} onChange={(event) => creationMode === 'manual' ? updateManualData('releaseDate', event.target.value) : setPosterReleaseDate(event.target.value)} placeholder="例如 2024-08-25" /></div>
               <div className="field-grid"><NumericControl id="release-date-size" label="发行日期字号" min={12} max={30} value={settings.releaseDateSize} onChange={(value) => updateSetting('releaseDateSize', value)} /><NumericControl id="release-date-y" label="发行日期上下位置" min={76} max={94} step={0.5} value={settings.releaseDateY} onChange={(value) => updateSetting('releaseDateY', value)} /></div>
-              {creationMode === 'manual' && <><div className="field-grid"><div className="field-group"><label htmlFor="manual-album">专辑名</label><input id="manual-album" value={manualData.albumName} onChange={(event) => updateManualData('albumName', event.target.value)} placeholder="可选" /></div><div className="field-group"><label htmlFor="manual-date">发行日期</label><input id="manual-date" value={manualData.releaseDate} onChange={(event) => updateManualData('releaseDate', event.target.value)} placeholder="例如 2024-08-25" /></div></div><div className="field-grid"><div className="field-group"><label htmlFor="manual-duration">歌曲时长</label><input id="manual-duration" value={manualData.duration} onChange={(event) => updateManualData('duration', event.target.value)} placeholder="例如 3:45" /></div><div className="field-group"><label htmlFor="manual-spotify">Spotify 链接 / URI</label><input id="manual-spotify" value={manualData.spotifyUri} onChange={(event) => updateManualData('spotifyUri', event.target.value)} placeholder="可选，用于生成扫码条" /></div></div></>}
+              {creationMode === 'manual' && <><div className="field-group"><label htmlFor="manual-album">专辑名</label><input id="manual-album" value={manualData.albumName} onChange={(event) => updateManualData('albumName', event.target.value)} placeholder="可选" /></div><div className="field-grid"><div className="field-group"><label htmlFor="manual-duration">歌曲时长</label><input id="manual-duration" value={manualData.duration} onChange={(event) => updateManualData('duration', event.target.value)} placeholder="例如 3:45" /></div><div className="field-group"><label htmlFor="manual-spotify">Spotify 链接 / URI</label><input id="manual-spotify" value={manualData.spotifyUri} onChange={(event) => updateManualData('spotifyUri', event.target.value)} placeholder="可选，用于生成扫码条" /></div></div></>}
               <div className="field-group"><label htmlFor="lyrics">歌词内容</label><textarea id="lyrics" value={activeLyrics} onChange={(event) => { if (creationMode === 'manual') updateManualData('lyrics', event.target.value); else { setLyrics(event.target.value); setLyricsSource('手动编辑'); } }} rows={10} /><small className="field-help">{creationMode === 'manual' ? '直接粘贴歌词即可；换行会自动处理为空格。' : isLoadingLyrics ? '正在自动获取完整歌词...' : lyricsSource ? '歌词来源：' + lyricsSource + '。你可以继续修改后再导出。' : '没有自动匹配到歌词，可以在这里手动粘贴。'}</small></div>
               <div className="field-group"><label htmlFor="lyrics-length">海报使用多少歌词</label><select id="lyrics-length" value={lyricsLengthMode} onChange={(event) => setLyricsLengthMode(event.target.value)}><option value="highlight">精选片段 · 约 600 字符</option><option value="balanced">均衡排版 · 约 1200 字符</option><option value="extended">较多歌词 · 约 1800 字符</option><option value="full">完整歌词 · 使用全部内容</option></select><small className="field-help">海报将使用 {posterLyrics.length} / {activeLyrics.length} 个字符。</small></div>
-              <div className="field-group"><div className="palette-heading"><label>一键热销配色</label><button type="button" className="auto-palette-button" onClick={handleAutoPalette} disabled={isAutoColoring}><Sparkles size={13} /> {isAutoColoring ? '识别中…' : '一键识别封面配色'}</button></div>{paletteRecommendations.length > 0 && <div className="palette-recommendations">{paletteRecommendations.map((item) => <button key={item.name} type="button" className={'palette-recommendation ' + (palette.name === item.name ? 'is-active' : '')} onClick={() => { setPalette(item); setPaletteStatus(''); }}><span className="recommendation-preview" style={{ background: item.paper }}><span className="recommendation-disc" style={{ background: item.disc }} /><span className="recommendation-accent" style={{ background: item.accent }} /></span><span><strong>{item.name}</strong><small>{item.accent}</small></span></button>)}</div>}<div className="palette-row">{palettes.map((item) => <button key={item.name} type="button" className={'palette-swatch ' + (palette.name === item.name ? 'is-active' : '')} style={{ background: item.paper }} onClick={() => { setPalette(item); setPaletteStatus(''); }} aria-label={`${item.code} ${item.name}`} title={`${item.code} · ${item.name}`}><span className="palette-code">{item.code}</span><span className="swatch-disc" style={{ background: item.disc }} /><span className="swatch-ink" style={{ background: item.ink }} /><span className="swatch-accent" style={{ background: item.accent }} /></button>)}</div>{paletteStatus && <span className="palette-status" role="status">{paletteStatus}</span>}</div>
+              <div className="field-group"><div className="palette-heading"><label>精选配色 · 8 款</label><button type="button" className="auto-palette-button" onClick={handleAutoPalette} disabled={isAutoColoring}><Sparkles size={13} /> {isAutoColoring ? '识别中…' : '一键识别封面配色'}</button></div>{paletteRecommendations.length > 0 && <><div className="palette-recommendations">{paletteRecommendations.slice(0, showAllPaletteRecommendations ? undefined : 3).map((item) => <button key={item.name} type="button" className={'palette-recommendation ' + (palette.name === item.name ? 'is-active' : '')} onClick={() => { setPalette(item); setPaletteStatus(''); }}><span className="recommendation-preview" style={{ background: item.paper }}><span className="recommendation-disc" style={{ background: item.disc }} /><span className="recommendation-accent" style={{ background: item.accent }} /></span><span><strong>{item.name}</strong><small>{item.accent}</small></span></button>)}</div>{paletteRecommendations.length > 3 && <button type="button" className="palette-more-button" onClick={() => setShowAllPaletteRecommendations((value) => !value)}>{showAllPaletteRecommendations ? '收起推荐' : '查看全部 6 套推荐'}</button>}</>}<div className="palette-row">{palettes.map((item) => <button key={item.name} type="button" className={'palette-swatch ' + (palette.name === item.name ? 'is-active' : '')} style={{ background: item.paper }} onClick={() => { setPalette(item); setPaletteStatus(''); }} aria-label={`${item.code} ${item.name}`} title={`${item.code} · ${item.name}`}><span className="palette-code">{item.code}</span><span className="swatch-disc" style={{ background: item.disc }} /><span className="palette-name" style={{ color: item.ink }}>{item.name}</span><span className="swatch-ink" style={{ background: item.ink }} /><span className="swatch-accent" style={{ background: item.accent }} /></button>)}</div>{paletteStatus && <span className="palette-status" role="status">{paletteStatus}</span>}</div>
               <div className="field-group"><label htmlFor="font-family">海报字体</label><select id="font-family" value={settings.fontFamily} onChange={(event) => updateSetting('fontFamily', event.target.value)}><option>Montserrat</option><option>Inter</option><option>DM Sans</option><option>Space Grotesk</option><option>IBM Plex Sans</option><option>Georgia</option><option>Arial</option><option>Courier New</option><option>Trebuchet MS</option></select></div>
               <div className="field-grid"><div className="field-group"><label htmlFor="center-style">中心唱片样式</label><select id="center-style" value={settings.centerStyle} onChange={(event) => updateSetting('centerStyle', event.target.value)}><option value="label">纯色唱片标签 · 主推</option><option value="cover">圆形专辑封面</option></select></div><div className="field-group"><label htmlFor="spiral-direction">歌词旋转方向</label><select id="spiral-direction" value={settings.spiralDirection} onChange={(event) => updateSetting('spiralDirection', event.target.value)}><option value="inside-out">由内向外 · 阅读优先</option><option value="outside-in">由外向内 · 唱片方向</option></select></div></div>
               <div className="field-group"><label htmlFor="lyrics-background-shape">歌词背景</label><select id="lyrics-background-shape" value={settings.lyricsBackgroundShape} onChange={(event) => updateSetting('lyricsBackgroundShape', event.target.value)}><option value="circle">显示圆形浮雕底板</option><option value="none">不显示背景</option></select></div>
@@ -596,7 +634,7 @@ function App() {
               <div className="field-grid"><div className="field-group"><label htmlFor="disc-color">唱片颜色</label><input id="disc-color" type="color" value={palette.disc} onChange={(event) => setPalette((current) => ({ ...current, disc: event.target.value }))} /></div><div className="field-group"><label htmlFor="accent-color">唱臂装饰颜色</label><input id="accent-color" type="color" value={palette.accent} onChange={(event) => setPalette((current) => ({ ...current, accent: event.target.value }))} /></div></div>
               <p className="control-subhead">扫码条与底部留白</p>
               <div className="field-grid"><NumericControl id="barcode-y" label="扫码条上下位置" min={78} max={96} step={0.5} value={settings.barcodeY} onChange={(value) => updateSetting('barcodeY', value)} /><NumericControl id="barcode-scale" label="扫码条大小（倍）" min={0.5} max={1.5} step={0.05} value={settings.barcodeScale} onChange={(value) => updateSetting('barcodeScale', value)} /></div>
-              <div className="field-actions"><label className="upload-control"><Upload size={15} /> 上传自定义封面（封面版 / 取色）<input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCoverUpload} /></label><label className="upload-control"><Upload size={15} /> 上传 TTF / OTF 字体<input type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} /></label><label className={'toggle-control ' + (!activeTrackUri ? 'is-disabled' : '')}><input type="checkbox" checked={settings.showBarcode} disabled={!activeTrackUri} onChange={(event) => updateSetting('showBarcode', event.target.checked)} /><span /> 显示 Spotify 扫码条</label></div>
+              <div className="field-actions"><div className="cover-actions"><label className="upload-control"><Upload size={15} /> 上传自定义封面（封面版 / 取色）<input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleCoverUpload} /></label>{customCover && <button type="button" className="clear-cover-button" onClick={handleClearCover}><X size={15} /> 清空封面</button>}</div><label className="upload-control"><Upload size={15} /> 上传 TTF / OTF 字体<input type="file" accept=".ttf,.otf,.woff,.woff2" onChange={handleFontUpload} /></label><label className={'toggle-control ' + (!activeTrackUri ? 'is-disabled' : '')}><input type="checkbox" checked={settings.showBarcode} disabled={!activeTrackUri} onChange={(event) => updateSetting('showBarcode', event.target.checked)} /><span /> 显示 Spotify 扫码条</label></div>
             </div>}
           </aside>
 

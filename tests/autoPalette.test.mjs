@@ -31,7 +31,7 @@ test('extractPosterPaletteVariants offers original, bright, and dark recommendat
   const variants = extractPosterPaletteVariants([
     { r: 190, g: 55, b: 45 }, { r: 190, g: 55, b: 45 }, { r: 240, g: 220, b: 190 },
   ]);
-  assert.deepEqual(variants.map((item) => item.name), ['原色氛围', '明亮编辑', '深色收藏']);
+  assert.deepEqual(variants.map((item) => item.name), ['原色氛围', '明亮编辑', '深色收藏', '高饱和强调', '暖色编辑', '黑白极简']);
   for (const item of variants) {
     assert.match(item.paper, /^#[0-9a-f]{6}$/);
     assert.match(item.disc, /^#[0-9a-f]{6}$/);
@@ -40,12 +40,24 @@ test('extractPosterPaletteVariants offers original, bright, and dark recommendat
   }
 });
 
+test('auto palette keeps a small vivid red accent instead of averaging it into a gray cover', () => {
+  const pixels = [
+    ...Array.from({ length: 80 }, () => ({ r: 145, g: 145, b: 150 })),
+    ...Array.from({ length: 8 }, () => ({ r: 230, g: 34, b: 28 })),
+    ...Array.from({ length: 5 }, () => ({ r: 245, g: 194, b: 22 })),
+  ];
+  const variants = extractPosterPaletteVariants(pixels);
+  assert.ok(variants.some((item) => item.name === '高饱和强调' && /^#e[0-9a-f]{5}$/i.test(item.accent)));
+  assert.ok(variants.some((item) => item.name === '暖色编辑' && /^#f[0-9a-f]{5}$/i.test(item.accent)));
+});
+
 test('editor exposes automatic cover palette action', () => {
   assert.match(appSource, /extractPosterPalette/);
   assert.match(appSource, /sampleImagePixels/);
   assert.match(appSource, /一键识别封面配色/);
   assert.match(appSource, /extractPosterPaletteVariants/);
   assert.match(appSource, /palette-recommendations/);
+  assert.match(appSource, /已生成 6 套封面推荐配色/);
 });
 
 test('uploaded cover object URLs are released when the cover changes or editor unmounts', () => {

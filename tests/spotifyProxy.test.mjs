@@ -49,6 +49,57 @@ test('search authenticates on the server and forwards the album query', async ()
   assert.equal(calls[1].options.headers.Authorization, 'Bearer test-access-token');
 });
 
+test('song search returns tracks and a pasted link resolves its exact track ID', async () => {
+  const urls = [];
+  const track = { id: '4qyfir5Yr7nfo05g6cyFMT', name: 'Promise', artists: [{ name: 'Ben Howard' }], album: { name: 'Every Kingdom' } };
+  const handler = createSpotifyHandler({
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      if (String(url).includes('/api/token')) {
+        return new Response(JSON.stringify({ access_token: 'token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify(urls.length === 2 ? { tracks: { items: [track] } } : track), { status: 200 });
+    },
+    env: { SPOTIFY_CLIENT_ID: 'id', SPOTIFY_CLIENT_SECRET: 'secret' },
+  });
+  const search = responseRecorder();
+  await handler(request({ action: 'search-tracks', q: 'Promise Ben Howard' }), search);
+  assert.deepEqual(search.body.tracks.items, [track]);
+  assert.match(urls[1], /type=track/);
+  assert.match(urls[1], /limit=10/);
+
+  const exact = responseRecorder();
+  await handler(request({ action: 'track', id: track.id }), exact);
+  assert.deepEqual(exact.body, track);
+  assert.equal(urls[2], `https://api.spotify.com/v1/tracks/${track.id}`);
+});
+
+test('song search combines Spotify pages into up to thirty distinct results', async () => {
+  const urls = [];
+  const handler = createSpotifyHandler({
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      if (String(url).includes('/api/token')) {
+        return new Response(JSON.stringify({ access_token: 'token', expires_in: 3600 }), { status: 200 });
+      }
+      const offset = Number(new URL(url).searchParams.get('offset') || 0);
+      const items = Array.from({ length: offset === 20 ? 5 : 10 }, (_, index) => ({
+        id: `song-${offset + index}`,
+      }));
+      return new Response(JSON.stringify({ tracks: { total: 25, items } }), { status: 200 });
+    },
+    env: { SPOTIFY_CLIENT_ID: 'id', SPOTIFY_CLIENT_SECRET: 'secret' },
+  });
+  const res = responseRecorder();
+
+  await handler(request({ action: 'search-tracks', q: 'Ben Howard' }), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.tracks.items.length, 25);
+  assert.equal(new Set(res.body.tracks.items.map((item) => item.id)).size, 25);
+  assert.deepEqual(urls.slice(1).map((url) => Number(new URL(url).searchParams.get('offset') || 0)), [0, 10, 20]);
+});
+
 test('album action forwards a validated Spotify album id', async () => {
   const urls = [];
   const fetchImpl = async (url) => {
@@ -130,6 +181,7 @@ test('invalid requests are rejected before Spotify is called', async () => {
     [request({ action: 'search', q: '' }), 400],
     [request({ action: 'search', q: 'x'.repeat(101) }), 400],
     [request({ action: 'album', id: '../token' }), 400],
+    [request({ action: 'track', id: '../token' }), 400],
     [request({ action: 'match', title: '', artist: 'Artist', durationMs: '200000' }), 400],
     [request({ action: 'match', title: 'Song', artist: '', durationMs: '200000' }), 400],
     [request({ action: 'match', title: 'Song', artist: 'Artist', durationMs: '0' }), 400],

@@ -73,8 +73,15 @@ export function createSpotifyHandler({ fetchImpl = fetch, env = process.env, now
     const durationMs = Number(one(req.query?.durationMs));
     let url;
     let isMatch = false;
+    let isTrackSearch = false;
 
-    if (action === 'search' && query && query.length <= 100) {
+    if (action === 'search-tracks' && query && query.length <= 100) {
+      const params = new URLSearchParams({ q: query, type: 'track', limit: '10' });
+      url = `https://api.spotify.com/v1/search?${params}`;
+      isTrackSearch = true;
+    } else if (action === 'track' && /^[A-Za-z0-9]{22}$/.test(albumId)) {
+      url = `https://api.spotify.com/v1/tracks/${albumId}`;
+    } else if (action === 'search' && query && query.length <= 100) {
       const params = new URLSearchParams({ q: query, type: 'album', limit: '8' });
       url = `https://api.spotify.com/v1/search?${params}`;
     } else if (action === 'album' && /^[A-Za-z0-9]{1,64}$/.test(albumId)) {
@@ -105,6 +112,26 @@ export function createSpotifyHandler({ fetchImpl = fetch, env = process.env, now
         throw Object.assign(new Error('upstream failed'), { statusCode: 502 });
       }
       const body = await response.json();
+      if (isTrackSearch) {
+        const firstPage = body.tracks?.items ?? [];
+        const offsets = firstPage.length === 10 ? [10, 20] : [];
+        const extraPages = await Promise.all(offsets.map(async (offset) => {
+          const params = new URLSearchParams({ q: query, type: 'track', limit: '10', offset: String(offset) });
+          const pageResponse = await fetchImpl(`https://api.spotify.com/v1/search?${params}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (!pageResponse.ok) throw new Error('upstream failed');
+          const page = await pageResponse.json();
+          return page.tracks?.items ?? [];
+        }));
+        const seen = new Set();
+        const items = [firstPage, ...extraPages].flat().filter((track) => {
+          if (!track?.id || seen.has(track.id)) return false;
+          seen.add(track.id);
+          return true;
+        });
+        return json(res, 200, { tracks: { ...body.tracks, items } });
+      }
       if (!isMatch) return json(res, 200, body);
 
       const normalizedTitle = normalize(title);

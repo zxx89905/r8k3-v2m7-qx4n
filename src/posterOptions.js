@@ -1,16 +1,12 @@
 export const palettes = [
-  { code: 'A', name: '畅销暖白', paper: '#f7f2e8', disc: '#e6ddd0', ink: '#1d1918', accent: '#c44732' },
+  { code: 'A', name: '暖白留声', paper: '#f8f3e8', disc: '#e8ddd0', ink: '#211b19', accent: '#c85a3e' },
   { code: 'B', name: '黑金典藏', paper: '#11100e', disc: '#242019', ink: '#f1d99b', accent: '#c69b52' },
-  { code: 'C', name: '酒红柔粉', paper: '#f8eeee', disc: '#ead5d9', ink: '#641f32', accent: '#d58b93' },
-  { code: 'D', name: '藏蓝香槟', paper: '#eef1f3', disc: '#d6dfe8', ink: '#172a46', accent: '#c7a05a' },
-  { code: 'E', name: '墨绿金色', paper: '#eef1e9', disc: '#d6ded1', ink: '#173f35', accent: '#b8894f' },
-  { code: 'F', name: '钴蓝明黄', paper: '#f3f2e9', disc: '#dbe4e8', ink: '#174a7a', accent: '#e2ac30' },
-  { code: 'G', name: '赤陶海军蓝', paper: '#f5eee8', disc: '#dfd8d0', ink: '#18354a', accent: '#c66a4a' },
-  { code: 'H', name: '樱桃奶油', paper: '#fff7ec', disc: '#f0ded5', ink: '#791f2d', accent: '#e0564a' },
-  { code: 'I', name: '蓝灰珊瑚', paper: '#edf1f2', disc: '#d7e0e2', ink: '#2e4554', accent: '#e06b5f' },
-  { code: 'J', name: '紫灰柠檬', paper: '#f3f0f4', disc: '#dfd9e4', ink: '#443a57', accent: '#d4b933' },
-  { code: 'K', name: '摩卡奶油', paper: '#f4eee5', disc: '#ded4c7', ink: '#3e2923', accent: '#b86b4b' },
-  { code: 'L', name: '极简黑白', paper: '#ffffff', disc: '#e8e8e8', ink: '#111111', accent: '#777777' },
+  { code: 'C', name: '酒红柔粉', paper: '#faeff0', disc: '#ead4d8', ink: '#681f35', accent: '#c94f64' },
+  { code: 'D', name: '藏蓝香槟', paper: '#eef1f5', disc: '#d5deeb', ink: '#1c3153', accent: '#c79f57' },
+  { code: 'E', name: '墨绿金色', paper: '#eef2e9', disc: '#d5dfd1', ink: '#174336', accent: '#b88b4c' },
+  { code: 'F', name: '橙色日落', paper: '#fff1df', disc: '#f3c391', ink: '#67301f', accent: '#e66b2e' },
+  { code: 'G', name: '紫罗兰银灰', paper: '#f1eef7', disc: '#ddd5ea', ink: '#44345f', accent: '#8d62c7' },
+  { code: 'H', name: '黑白极简', paper: '#fffdf8', disc: '#e7e5df', ink: '#171717', accent: '#555555' },
 ];
 
 export const sizeLayoutPresets = {

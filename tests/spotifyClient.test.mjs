@@ -3,6 +3,25 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { createSpotifyClient } from '../src/spotify.js';
 
+test('searchTracks and getTrack use song endpoints with an exact Spotify ID', async () => {
+  const urls = [];
+  const track = { id: '4qyfir5Yr7nfo05g6cyFMT', name: 'Promise', album: { name: 'Every Kingdom' } };
+  const client = createSpotifyClient({
+    baseUrl: 'https://proxy.example/api/spotify',
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      return new Response(JSON.stringify(urls.length === 1 ? { tracks: { items: [track] } } : track), { status: 200 });
+    },
+  });
+
+  assert.deepEqual(await client.searchTracks('Promise Ben Howard'), [track]);
+  assert.deepEqual(await client.getTrack(track.id), track);
+  assert.deepEqual(urls, [
+    'https://proxy.example/api/spotify?action=search-tracks&q=Promise+Ben+Howard',
+    'https://proxy.example/api/spotify?action=track&id=4qyfir5Yr7nfo05g6cyFMT',
+  ]);
+});
+
 test('searchAlbums calls the proxy and returns album items', async () => {
   let requestedUrl = '';
   const client = createSpotifyClient({

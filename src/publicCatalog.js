@@ -68,6 +68,17 @@ export function createPublicCatalogClient({ fetchImpl = fetch, baseUrl = DEFAULT
   }
 
   return {
+    async searchPublicTracks(query) {
+      const data = await request('/search', {
+        term: String(query || '').trim(),
+        entity: 'song',
+        limit: '30',
+        country: 'US',
+      });
+      return resultsFrom(data)
+        .filter((item) => item.wrapperType === 'track' && item.kind === 'song' && item.trackId)
+        .map((item) => ({ ...convertTrack(item), album: convertAlbum(item) }));
+    },
     async searchPublicAlbums(query) {
       const data = await request('/search', {
         term: String(query || '').trim(),
@@ -106,3 +117,4 @@ export function createPublicCatalogClient({ fetchImpl = fetch, baseUrl = DEFAULT
 const publicCatalogClient = createPublicCatalogClient();
 export const searchPublicAlbums = publicCatalogClient.searchPublicAlbums;
 export const getPublicAlbum = publicCatalogClient.getPublicAlbum;
+export const searchPublicTracks = publicCatalogClient.searchPublicTracks;

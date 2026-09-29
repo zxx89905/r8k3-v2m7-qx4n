@@ -14,15 +14,19 @@ import {
 test('catalog router uses the selected automatic catalog', async () => {
   const router = createCatalogRouter({
     spotify: {
+      searchTracks: async (query) => [{ id: `spotify-track:${query}` }],
       searchAlbums: async (query) => [{ id: `spotify-search:${query}` }],
       getAlbum: async (id) => ({ id: `spotify-album:${id}` }),
     },
     publicCatalog: {
+      searchTracks: async (query) => [{ id: `public-track:${query}` }],
       searchAlbums: async (query) => [{ id: `public-search:${query}` }],
       getAlbum: async (id) => ({ id: `public-album:${id}` }),
     },
   });
 
+  assert.deepEqual(await router.searchTracks('spotify', 'Promise'), [{ id: 'spotify-track:Promise' }]);
+  assert.deepEqual(await router.searchTracks('public', 'Promise'), [{ id: 'public-track:Promise' }]);
   assert.deepEqual(await router.searchAlbums('spotify', 'Blonde'), [{ id: 'spotify-search:Blonde' }]);
   assert.deepEqual(await router.searchAlbums('public', 'Blonde'), [{ id: 'public-search:Blonde' }]);
   assert.deepEqual(await router.getAlbum('spotify', '1'), { id: 'spotify-album:1' });
@@ -127,13 +131,13 @@ test('editor exposes all three creation modes and disables unavailable Spotify C
   assert.match(source, /未匹配到 Spotify，扫码条已隐藏/);
 });
 
-test('replacement album requests clear stale lyric and match loading states', async () => {
+test('choosing a song clears stale render and lyric loading states', async () => {
   const source = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
-  const chooseAlbum = source.match(/const chooseAlbum = async[\s\S]+?setIsLoadingAlbum\(true\);/)?.[0] || '';
-  assert.match(chooseAlbum, /setIsLoadingLyrics\(false\);/);
-  assert.match(chooseAlbum, /setIsMatchingSpotify\(false\);/);
-  assert.match(chooseAlbum, /setPublicSpotifyReference\(''\);/);
-  assert.match(chooseAlbum, /setImage\(''\);/);
+  const selectTrack = source.match(/const applyTrackSelection = \(track\) => \{[\s\S]+?\n  \};/)?.[0] || '';
+  assert.match(selectTrack, /setIsLoadingLyrics\(false\);/);
+  assert.match(selectTrack, /setIsMatchingSpotify\(false\);/);
+  assert.match(selectTrack, /setImage\(''\);/);
+  assert.match(selectTrack, /setSelectedAlbum\(album\);/);
 });
 
 test('mode changes clear the rendered poster so stale downloads stay disabled', async () => {

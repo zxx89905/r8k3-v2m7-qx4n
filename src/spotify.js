@@ -14,6 +14,13 @@ export function createSpotifyClient({ fetchImpl = fetch, baseUrl = configuredPro
   }
 
   return {
+    async searchTracks(query) {
+      const data = await request({ action: 'search-tracks', q: query });
+      return data.tracks?.items ?? [];
+    },
+    getTrack(id) {
+      return request({ action: 'track', id });
+    },
     async searchAlbums(query) {
       const data = await request({ action: 'search', q: query });
       return data.albums?.items ?? [];
@@ -30,6 +37,8 @@ export function createSpotifyClient({ fetchImpl = fetch, baseUrl = configuredPro
 const spotifyClient = createSpotifyClient();
 export const searchAlbums = spotifyClient.searchAlbums;
 export const getAlbum = spotifyClient.getAlbum;
+export const searchTracks = spotifyClient.searchTracks;
+export const getTrack = spotifyClient.getTrack;
 export const matchTrack = spotifyClient.matchTrack;
 
 function normalize(value) {
@@ -40,7 +49,7 @@ export async function getLyrics(track, album) {
   if (!track) return { lyrics: '', syncedLyrics: '', source: '' };
   const params = new URLSearchParams({
     track_name: track.name,
-    artist_name: album?.artists?.map((artist) => artist.name).join(', ') || '',
+    artist_name: (track.artists || album?.artists)?.map((artist) => artist.name).join(', ') || '',
     album_name: album?.name || '',
     duration: String(Math.round((track.duration_ms || 0) / 1000)),
   });
@@ -52,7 +61,7 @@ export async function getLyrics(track, album) {
     .sort((a, b) => {
       const score = (item) => {
         const trackScore = normalize(item.trackName) === normalize(track.name) ? 3 : 0;
-        const artistScore = normalize(item.artistName).includes(normalize(album?.artists?.[0]?.name)) ? 2 : 0;
+        const artistScore = normalize(item.artistName).includes(normalize(track.artists?.[0]?.name || album?.artists?.[0]?.name)) ? 2 : 0;
         const albumScore = normalize(item.albumName) === normalize(album?.name) ? 1 : 0;
         return trackScore + artistScore + albumScore;
       };

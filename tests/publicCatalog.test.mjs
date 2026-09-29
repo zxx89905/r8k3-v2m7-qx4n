@@ -68,6 +68,23 @@ test('searchPublicAlbums requests iTunes and converts albums for the editor', as
   }]);
 });
 
+test('song search returns individual public tracks with their cover and album metadata', async () => {
+  let requestedUrl = '';
+  const client = createPublicCatalogClient({
+    fetchImpl: async (url) => {
+      requestedUrl = String(url);
+      return new Response(JSON.stringify({ results: [albumResult, trackResult] }), { status: 200 });
+    },
+  });
+
+  const tracks = await client.searchPublicTracks('Nights Frank Ocean');
+  assert.equal(requestedUrl, 'https://itunes.apple.com/search?term=Nights+Frank+Ocean&entity=song&limit=30&country=US');
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].name, 'Nights');
+  assert.equal(tracks[0].album.name, 'Blonde');
+  assert.equal(tracks[0].album.images[0].url, 'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/cover/600x600bb.jpg');
+});
+
 test('getPublicAlbum requests iTunes lookup and converts song rows', async () => {
   let requestedUrl = '';
   const client = createPublicCatalogClient({

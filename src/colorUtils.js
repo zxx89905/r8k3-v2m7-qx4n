@@ -33,6 +33,52 @@ function saturation({ r, g, b }) {
   return max === 0 ? 0 : (max - min) / max;
 }
 
+function hueDegrees({ r, g, b }) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) return 0;
+  let hue;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  return (hue * 60 + 360) % 360;
+}
+
+function getVividCandidates(pixels) {
+  const candidates = [];
+  for (const pixel of pixels) {
+    if (![pixel?.r, pixel?.g, pixel?.b].every(Number.isFinite)) continue;
+    const color = { r: clampByte(pixel.r), g: clampByte(pixel.g), b: clampByte(pixel.b) };
+    const lightness = luminance(color);
+    if (lightness > 0.97 || lightness < 0.035 || saturation(color) < 0.22) continue;
+    candidates.push(color);
+  }
+  return candidates.sort((a, b) => saturation(b) - saturation(a));
+}
+
+function chooseRedCandidate(candidates) {
+  return candidates.find((color) => {
+    const hue = hueDegrees(color);
+    return hue < 25 || hue > 340;
+  }) || candidates[0];
+}
+
+function chooseWarmCandidate(candidates) {
+  return candidates.find((color) => {
+    const hue = hueDegrees(color);
+    return hue >= 20 && hue <= 75;
+  }) || candidates[0];
+}
+
+function paletteFromAccent(name, accent) {
+  const paper = mix(accent, '#ffffff', 0.84);
+  const disc = mix(accent, '#ffffff', 0.58);
+  const color = hexToRgb(accent);
+  const ink = luminance(color) > 0.58 ? mix(accent, '#171b19', 0.68) : mix(accent, '#111514', 0.48);
+  return { name, paper, disc, ink, accent };
+}
+
 export function extractPosterPalette(pixels) {
   if (!Array.isArray(pixels) || pixels.length === 0) throw new Error('无法从封面提取颜色');
 
@@ -70,6 +116,9 @@ export function extractPosterPalette(pixels) {
 
 export function extractPosterPaletteVariants(pixels) {
   const base = extractPosterPalette(pixels);
+  const vividCandidates = getVividCandidates(pixels);
+  const redAccent = vividCandidates.length > 0 ? rgbToHex(chooseRedCandidate(vividCandidates)) : base.accent;
+  const warmAccent = vividCandidates.length > 0 ? rgbToHex(chooseWarmCandidate(vividCandidates)) : '#d98a45';
   return [
     { ...base, name: '原色氛围' },
     {
@@ -86,6 +135,9 @@ export function extractPosterPaletteVariants(pixels) {
       ink: mix(base.accent, '#fff4df', 0.72),
       accent: mix(base.accent, '#e7a05d', 0.34),
     },
+    paletteFromAccent('高饱和强调', redAccent),
+    paletteFromAccent('暖色编辑', warmAccent),
+    { name: '黑白极简', paper: '#fffdf8', disc: '#e7e5df', ink: '#171717', accent: '#171717' },
   ];
 }
 
